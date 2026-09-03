@@ -114,4 +114,21 @@ describe('renderScene', () => {
     expect(labels).toContain('100')
     expect(labels).toContain('300')
   })
+
+  it('draws the preview dashed on top of committed geometry', () => {
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, docWith(), viewport, { ...options, preview: line })
+
+    // The preview line (10,10)→(50,30) is drawn flipped to screen (50,270)…
+    expect(calls).toContainEqual({ method: 'lineTo', args: [50, 270] })
+    // …with a dash pattern, then save/restore resets the dash afterwards.
+    expect(calls).toContainEqual({ method: 'setLineDash', args: [[9, 3]] })
+    expect(calls[calls.length - 1]).toEqual({ method: 'restore', args: [] })
+  })
+
+  it('does not touch dash state when no preview is given', () => {
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, docWith(line), viewport, options)
+    expect(calls.some(c => c.method === 'setLineDash')).toBe(false)
+  })
 })

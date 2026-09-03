@@ -27,6 +27,16 @@ function stubSize(el: CadCanvas, width: number, height: number): void {
   Object.defineProperty(el, 'clientHeight', { value: height, configurable: true })
 }
 
+function stubCapture(el: CadCanvas): void {
+  const canvas = el.querySelector('canvas')!
+  canvas.setPointerCapture = () => {}
+  canvas.releasePointerCapture = () => {}
+}
+
+function pointer(el: CadCanvas, type: string, clientX: number, clientY: number): void {
+  el.querySelector('canvas')!.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true }))
+}
+
 describe('cad-canvas', () => {
   it('sets its accessibility attributes and tabindex', () => {
     const el = makeCanvas()
@@ -122,5 +132,94 @@ describe('cad-canvas', () => {
     expect(renderSceneMock).toHaveBeenCalledTimes(2)
 
     el.remove()
+  })
+
+  describe('line tool', () => {
+    it('grows the document by one line on a click-drag gesture', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      pointer(el, 'pointerdown', 10, 10)
+      pointer(el, 'pointermove', 30, 40)
+      pointer(el, 'pointerup', 30, 40)
+
+      const doc = el.getDocument()
+      expect(doc.entities).toHaveLength(1)
+      // y-up world: screen (10,10) → world (10,-10); (30,40) → (30,-40).
+      expect(doc.entities[0]).toEqual({
+        id: expect.any(String),
+        type: 'line',
+        x1: 10,
+        y1: -10,
+        x2: 30,
+        y2: -40,
+      })
+
+      el.remove()
+    })
+
+    it('dispatches cad-canvas:commit with the entity and updated document', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      const commits: CustomEvent[] = []
+      el.addEventListener('cad-canvas:commit', event => commits.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 0, 0)
+      pointer(el, 'pointerup', 10, 0)
+
+      expect(commits).toHaveLength(1)
+      expect(commits[0].detail.entity).toMatchObject({ type: 'line' })
+      expect(commits[0].detail.document).toBe(el.getDocument())
+
+      el.remove()
+    })
+
+    it('passes the rubber-band preview to the renderer while dragging', async () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      pointer(el, 'pointerdown', 0, 0)
+      pointer(el, 'pointermove', 20, 30)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+
+      const lastCall = renderSceneMock.mock.calls.at(-1)!
+      expect(lastCall[3].preview).toMatchObject({ type: 'line', x2: 20, y2: -30 })
+
+      el.remove()
+    })
+
+    it('Escape cancels an in-progress gesture without committing', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      pointer(el, 'pointerdown', 0, 0)
+      pointer(el, 'pointermove', 15, 15)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      pointer(el, 'pointerup', 15, 15)
+
+      expect(el.getDocument().entities).toHaveLength(0)
+
+      el.remove()
+    })
+
+    it('does not commit a click without drag', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      pointer(el, 'pointerdown', 5, 5)
+      pointer(el, 'pointerup', 5, 5)
+
+      expect(el.getDocument().entities).toHaveLength(0)
+
+      el.remove()
+    })
   })
 })

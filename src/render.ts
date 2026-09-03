@@ -16,7 +16,12 @@ export interface RenderOptions {
   readonly width: number
   readonly height: number
   readonly theme: RenderTheme
+  /** In-progress tool geometry, drawn dashed on top of the scene. */
+  readonly preview?: Entity
 }
+
+/** Dash:gap ratio of 3:1 keeps the preview clearly distinct from committed ink. */
+const PREVIEW_DASH = [9, 3]
 
 /** Smallest on-screen grid spacing, in pixels. */
 const MIN_GRID_PX = 8
@@ -66,6 +71,20 @@ export function entityBounds(entity: Entity): WorldRect {
       return circleBounds(entity)
     case 'rect':
       return rectBounds(entity)
+  }
+}
+
+function drawEntity(ctx: CanvasRenderingContext2D, entity: Entity, v: Viewport): void {
+  switch (entity.type) {
+    case 'line':
+      drawLine(ctx, entity, v)
+      break
+    case 'circle':
+      drawCircle(ctx, entity, v)
+      break
+    case 'rect':
+      drawRect(ctx, entity, v)
+      break
   }
 }
 
@@ -165,16 +184,13 @@ export function renderScene(
   ctx.lineWidth = 1
   for (const entity of doc.entities) {
     if (!intersects(entityBounds(entity), visible)) continue
-    switch (entity.type) {
-      case 'line':
-        drawLine(ctx, entity, v)
-        break
-      case 'circle':
-        drawCircle(ctx, entity, v)
-        break
-      case 'rect':
-        drawRect(ctx, entity, v)
-        break
-    }
+    drawEntity(ctx, entity, v)
+  }
+
+  if (opts.preview) {
+    ctx.save()
+    ctx.setLineDash(PREVIEW_DASH)
+    drawEntity(ctx, opts.preview, v)
+    ctx.restore()
   }
 }

@@ -3,12 +3,15 @@
  * @license   MIT
  */
 
-import { createDocument, type DrawingDocument } from '../../../document.js'
+import { addEntity, createDocument, type DrawingDocument, type Entity } from '../../../document.js'
 import { renderScene } from '../../../render.js'
+import { LineTool } from '../../../tools/line.js'
+import type { Tool, ToolContext, ToolState } from '../../../tools/types.js'
 import { panBy, screenToWorld, zoomAt, type Viewport } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
   'cad-canvas:pointer': CustomEvent<{ world: { x: number; y: number }; buttons: number }>
+  'cad-canvas:commit': CustomEvent<{ entity: Entity; document: DrawingDocument }>
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2
@@ -26,6 +29,8 @@ export class CadCanvas extends HTMLElement {
   #abort: AbortController | null = null
   #resizeObserver: ResizeObserver | null = null
   #document: DrawingDocument = createDocument()
+  #tool: Tool = new LineTool()
+  #toolState: ToolState = this.#tool.init()
   #dirty = false
   #rafId = 0
 
@@ -63,6 +68,7 @@ export class CadCanvas extends HTMLElement {
     this.addEventListener('pointermove', this.#onPointer, opts)
     this.addEventListener('pointerup', this.#onPointer, opts)
     this.addEventListener('wheel', this.#onWheel, { ...opts, passive: false })
+    this.addEventListener('keydown', this.#onKeyDown, opts)
 
     if (typeof ResizeObserver !== 'undefined') {
       this.#resizeObserver = new ResizeObserver(() => this.syncCanvasSize())
@@ -116,6 +122,7 @@ export class CadCanvas extends HTMLElement {
     renderScene(ctx, this.#document, this.#viewport, {
       width: this.clientWidth,
       height: this.clientHeight,
+      preview: this.#toolState.preview,
       theme: {
         gridMinor: cssVar('--canvas-grid-minor', DEFAULT_THEME.gridMinor),
         gridMajor: cssVar('--canvas-grid-major', DEFAULT_THEME.gridMajor),
@@ -159,11 +166,44 @@ export class CadCanvas extends HTMLElement {
     }
     const rect = canvas.getBoundingClientRect()
     const world = screenToWorld(this.#viewport, event.clientX - rect.left, event.clientY - rect.top)
+
+    // Route the gesture through the active tool first; the pointer event
+    // still bubbles outward as `cad-canvas:pointer` for the mediator.
+    const ctx: ToolContext = { doc: this.#document, viewport: this.#viewport }
+    if (event.type === 'pointerdown') {
+      this.#toolState = this.#tool.onPointerDown(ctx, this.#toolState, world, event)
+    } else if (event.type === 'pointermove') {
+      this.#toolState = this.#tool.onPointerMove(ctx, this.#toolState, world, event)
+    } else if (event.type === 'pointerup') {
+      const result = this.#tool.onPointerUp(ctx, this.#toolState, world, event)
+      this.#toolState = result.state
+      if (result.commit) this.#commit(result.commit)
+    }
+    this.invalidate()
+
     this.dispatchEvent(
       new CustomEvent('cad-canvas:pointer', {
         bubbles: true,
         composed: true,
         detail: { world, buttons: event.buttons },
+      })
+    )
+  }
+
+  #onKeyDown = (event: KeyboardEvent): void => {
+    const next = this.#tool.onKey?.(this.#toolState, event)
+    if (next === undefined || next === this.#toolState) return
+    this.#toolState = next
+    this.invalidate()
+  }
+
+  #commit(entity: Entity): void {
+    this.#document = addEntity(this.#document, entity)
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:commit', {
+        bubbles: true,
+        composed: true,
+        detail: { entity, document: this.#document },
       })
     )
   }
