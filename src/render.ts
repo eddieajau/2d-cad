@@ -3,19 +3,28 @@
  * @license   MIT
  */
 
-import type {
-  DrawingDocument,
-  EntityDraft,
-  EntityId,
-  LineEntity,
-  CircleEntity,
-  RectEntity,
-  TextEntity,
-  DimEntity,
+import {
+  layerById,
+  type DrawingDocument,
+  type EntityDraft,
+  type EntityId,
+  type LineEntity,
+  type CircleEntity,
+  type RectEntity,
+  type TextEntity,
+  type DimEntity,
+  type Entity,
 } from './document.js'
 import { dimLine, textBounds } from './geometry.js'
 import { visibleWorldRect, worldToScreen, type Viewport, type WorldPoint, type WorldRect } from './viewport.js'
 
+/**
+ * Scene styling. `ink` is the fallback entity colour: any builtin drafting
+ * colour usable as entity/layer ink (the seed `DEFAULT_COLOUR` and whatever
+ * the user picks for layers) should hold ≥ 3:1 contrast against the canvas
+ * surface — the CSS `--canvas-ink` default `#1f2430` is the reference ink.
+ * Selection/preview styling overrides entity colour when drawn.
+ */
 export interface RenderTheme {
   readonly gridMinor: string
   readonly gridMajor: string
@@ -148,6 +157,17 @@ function drawEntity(ctx: CanvasRenderingContext2D, entity: EntityDraft, v: Viewp
       drawDim(ctx, entity, v)
       break
   }
+}
+
+/**
+ * Entity ink: an explicit per-entity override wins, then the entity's layer
+ * colour, then the caller's fallback (the theme ink). Layerless drafts
+ * (previews) skip straight to the fallback unless they carry an override.
+ */
+export function resolveColour(doc: DrawingDocument, entity: Entity | EntityDraft, fallback: string): string {
+  if (entity.colour !== undefined) return entity.colour
+  const layer = entity.layerId !== undefined ? layerById(doc, entity.layerId) : undefined
+  return layer?.colour ?? fallback
 }
 
 function intersects(a: WorldRect, b: WorldRect): boolean {
@@ -362,13 +382,13 @@ export function renderScene(
   const draggingSelection = preview !== undefined && opts.selectedId != null && preview.id === opts.selectedId
 
   // Filled draws (text, dim labels/arrowheads) share the ink colour with strokes.
-  ctx.strokeStyle = opts.theme.ink
-  ctx.fillStyle = opts.theme.ink
   ctx.lineWidth = 1
   for (const entity of doc.entities) {
     if (hidden.has(entity.layerId)) continue
     if (preview !== undefined && entity.id === preview.id) continue
     if (!intersects(entityBounds(entity), visible)) continue
+    ctx.strokeStyle = resolveColour(doc, entity, opts.theme.ink)
+    ctx.fillStyle = ctx.strokeStyle
     drawEntity(ctx, entity, v)
   }
 
@@ -388,6 +408,8 @@ export function renderScene(
   if (preview && !draggingSelection) {
     ctx.save()
     ctx.setLineDash(PREVIEW_DASH)
+    ctx.strokeStyle = resolveColour(doc, preview, opts.theme.ink)
+    ctx.fillStyle = ctx.strokeStyle
     drawEntity(ctx, preview, v)
     ctx.restore()
   }

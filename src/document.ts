@@ -8,11 +8,19 @@ export type EntityId = string
 /** The layer every document is seeded with; legacy files load onto it. */
 export const DEFAULT_LAYER_ID: EntityId = 'layer-0'
 
+/**
+ * The ink every document starts with. Matches the light theme's
+ * `--canvas-ink` so seed layers read as ink on the default canvas.
+ */
+export const DEFAULT_COLOUR = '#1f2430'
+
 export interface Layer {
   id: EntityId
   name: string
   visible: boolean
   locked: boolean
+  /** Hex fill for entities that do not override their own colour. */
+  colour: string
 }
 
 export interface LineEntity {
@@ -23,6 +31,8 @@ export interface LineEntity {
   y1: number
   x2: number
   y2: number
+  /** Optional per-entity colour override; absent means "use the layer's". */
+  colour?: string
 }
 
 export interface CircleEntity {
@@ -32,6 +42,8 @@ export interface CircleEntity {
   cx: number
   cy: number
   r: number
+  /** Optional per-entity colour override; absent means "use the layer's". */
+  colour?: string
 }
 
 export interface RectEntity {
@@ -42,6 +54,8 @@ export interface RectEntity {
   y: number
   w: number
   h: number
+  /** Optional per-entity colour override; absent means "use the layer's". */
+  colour?: string
 }
 
 export interface TextEntity {
@@ -54,6 +68,8 @@ export interface TextEntity {
   text: string
   /** Font size in world units. */
   size: number
+  /** Optional per-entity colour override; absent means "use the layer's". */
+  colour?: string
 }
 
 export interface DimEntity {
@@ -67,6 +83,8 @@ export interface DimEntity {
   y2: number
   /** Signed perpendicular distance of the dimension line (left positive). */
   offset: number
+  /** Optional per-entity colour override; absent means "use the layer's". */
+  colour?: string
 }
 
 export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity
@@ -104,7 +122,7 @@ export function createEntityId(): EntityId {
 export function createDocument(): DrawingDocument {
   return {
     entities: [],
-    layers: [{ id: DEFAULT_LAYER_ID, name: 'Default', visible: true, locked: false }],
+    layers: [{ id: DEFAULT_LAYER_ID, name: 'Default', visible: true, locked: false, colour: DEFAULT_COLOUR }],
     activeLayerId: DEFAULT_LAYER_ID,
   }
 }
@@ -177,7 +195,7 @@ export function layerById(doc: DrawingDocument, id: EntityId): Layer | undefined
 }
 
 export function addLayer(doc: DrawingDocument, name: string): DrawingDocument {
-  const layer: Layer = { id: nextLayerIdFor(doc), name, visible: true, locked: false }
+  const layer: Layer = { id: nextLayerIdFor(doc), name, visible: true, locked: false, colour: DEFAULT_COLOUR }
   return { ...doc, layers: [...doc.layers, layer] }
 }
 
@@ -245,6 +263,9 @@ function parseEntity(value: unknown): EntityDraft {
   if (record.layerId !== undefined && typeof record.layerId !== 'string') {
     throw new DocumentParseError('Entity "layerId" must be a string')
   }
+  if (record.colour !== undefined && typeof record.colour !== 'string') {
+    throw new DocumentParseError('Entity "colour" must be a string')
+  }
   switch (record.type) {
     case 'line':
       if (!isFiniteRecord(record, ['x1', 'y1', 'x2', 'y2'])) {
@@ -290,7 +311,11 @@ function parseLayer(value: unknown): Layer {
   if (typeof record.visible !== 'boolean' || typeof record.locked !== 'boolean') {
     throw new DocumentParseError('Layer must have boolean "visible" and "locked"')
   }
-  return value as Layer
+  if (record.colour !== undefined && typeof record.colour !== 'string') {
+    throw new DocumentParseError('Layer "colour" must be a string')
+  }
+  // Layers from before colours existed load with the default ink.
+  return { colour: DEFAULT_COLOUR, ...record } as Layer
 }
 
 export function serializeDocument(doc: DrawingDocument): string {
@@ -323,7 +348,7 @@ export function deserializeDocument(json: string): DrawingDocument {
 
   return {
     entities: entities as Entity[],
-    layers: layers ?? [{ id: DEFAULT_LAYER_ID, name: 'Default', visible: true, locked: false }],
+    layers: layers ?? [{ id: DEFAULT_LAYER_ID, name: 'Default', visible: true, locked: false, colour: DEFAULT_COLOUR }],
     activeLayerId,
   }
 }

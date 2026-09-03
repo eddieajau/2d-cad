@@ -68,7 +68,7 @@ describe('downloadDocument', () => {
     const blob = createObjectURL.mock.calls[0]![0] as Blob
     await expect(blob.text()).resolves.toBe(
       JSON.stringify({
-        layers: [{ id: 'layer-0', name: 'Default', visible: true, locked: false }],
+        layers: [{ id: 'layer-0', name: 'Default', visible: true, locked: false, colour: '#1f2430' }],
         activeLayerId: 'layer-0',
         entities: [line],
       })

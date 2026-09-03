@@ -10,8 +10,8 @@ import './layer-panel.js'
 import type { LayerPanel, LayerPanelChange } from './layer-panel.js'
 
 const LAYERS: readonly Layer[] = [
-  { id: 'layer-0', name: 'Default', visible: true, locked: false },
-  { id: 'layer-1', name: 'Survey', visible: false, locked: true },
+  { id: 'layer-0', name: 'Default', visible: true, locked: false, colour: '#1f2430' },
+  { id: 'layer-1', name: 'Survey', visible: false, locked: true, colour: '#00aa00' },
 ]
 
 function makePanel(layers: readonly Layer[] = LAYERS, active = 'layer-0'): LayerPanel {
@@ -62,10 +62,32 @@ describe('layer-panel', () => {
   })
 
   it('escapes layer names into the markup', () => {
-    const el = makePanel([{ id: 'l1', name: '<b>&"x', visible: true, locked: false }])
+    const el = makePanel([{ id: 'l1', name: '<b>&"x', visible: true, locked: false, colour: '#1f2430' }])
     // The raw name survives as text (no injected <b> element), quotes and all.
     expect(el.querySelector('b')).toBeNull()
     expect(el.querySelector('.layer-name')?.textContent).toBe('<b>&"x')
+    el.remove()
+  })
+
+  it('renders a colour swatch per row, labelled by the layer name', () => {
+    const el = makePanel()
+    const swatch = rowOf(el, 'layer-1').querySelector<HTMLInputElement>('input.layer-colour')!
+    expect(swatch.type).toBe('color')
+    expect(swatch.value).toBe('#00aa00')
+    expect(swatch.getAttribute('aria-label')).toBe('Colour of layer Survey')
+    el.remove()
+  })
+
+  it('emits a colour op with the picked hex value', () => {
+    const el = makePanel()
+    const events: LayerPanelChange[] = []
+    el.addEventListener('layer-panel:change', event => events.push((event as CustomEvent<LayerPanelChange>).detail))
+
+    const swatch = rowOf(el, 'layer-1').querySelector<HTMLInputElement>('input.layer-colour')!
+    swatch.value = '#b45309'
+    swatch.dispatchEvent(new Event('change', { bubbles: true }))
+
+    expect(events).toEqual([{ op: 'colour', layerId: 'layer-1', value: '#b45309' }])
     el.remove()
   })
 

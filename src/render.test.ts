@@ -5,8 +5,25 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { addEntity, addLayer, createDocument, updateLayer, type DrawingDocument, type Entity } from './document.js'
-import { drawDim, drawText, formatLength, gridInterval, renderGrid, renderScene, type RenderOptions } from './render.js'
+import {
+  addEntity,
+  addLayer,
+  createDocument,
+  DEFAULT_COLOUR,
+  updateLayer,
+  type DrawingDocument,
+  type Entity,
+} from './document.js'
+import {
+  drawDim,
+  drawText,
+  formatLength,
+  gridInterval,
+  renderGrid,
+  renderScene,
+  resolveColour,
+  type RenderOptions,
+} from './render.js'
 import type { Viewport } from './viewport.js'
 
 interface Call {
@@ -80,6 +97,30 @@ describe('formatLength', () => {
   })
 })
 
+describe('resolveColour', () => {
+  it('prefers an entity colour override over the layer colour', () => {
+    const doc = docWith({ ...line, colour: '#ff0000' })
+    expect(resolveColour(doc, doc.entities[0]!, options.theme.ink)).toBe('#ff0000')
+  })
+
+  it('uses the layer colour when the entity has no override', () => {
+    let doc = addLayer(createDocument(), 'Survey')
+    const survey = doc.layers[1]!.id
+    doc = updateLayer(doc, survey, { colour: '#00aa00' })
+    doc = addEntity(doc, { ...line, layerId: survey })
+    expect(resolveColour(doc, doc.entities[0]!, options.theme.ink)).toBe('#00aa00')
+  })
+
+  it('falls back to the theme ink for an unknown layer', () => {
+    expect(resolveColour(createDocument(), { ...line, layerId: 'ghost' }, options.theme.ink)).toBe(options.theme.ink)
+  })
+
+  it('falls back to the theme ink for a layerless preview', () => {
+    const { layerId: _layerId, ...layerless } = line
+    expect(resolveColour(createDocument(), layerless, options.theme.ink)).toBe(options.theme.ink)
+  })
+})
+
 describe('renderScene', () => {
   it('clears the canvas before drawing the scene', () => {
     const { ctx, calls } = createCtxStub()
@@ -97,15 +138,50 @@ describe('renderScene', () => {
     expect(calls.some(c => c.method === 'strokeRect' && c.args[0] === 20 && c.args[1] === 270)).toBe(true)
   })
 
-  it('renders text and dim entities with the ink fill', () => {
+  it('renders text and dim entities with the resolved layer colour', () => {
     const { ctx, calls } = createCtxStub()
     const text = { id: 't1', type: 'text', layerId: 'layer-0', x: 10, y: 10, text: 'note', size: 12 } as const
     const dim = { id: 'd1', type: 'dim', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 0, offset: 5 } as const
     renderScene(ctx, docWith(text, dim), viewport, options)
 
-    expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.ink] })
+    // The seed layer carries the default ink, so its entities draw with it.
+    expect(calls).toContainEqual({ method: 'set:fillStyle', args: [DEFAULT_COLOUR] })
     expect(calls.some(c => c.method === 'fillText' && c.args[0] === 'note')).toBe(true)
     expect(calls.some(c => c.method === 'fillText' && c.args[0] === '40 mm')).toBe(true)
+  })
+
+  it('draws each entity with its resolved colour, override over layer', () => {
+    let doc = addLayer(createDocument(), 'Survey')
+    const survey = doc.layers[1]!.id
+    doc = updateLayer(doc, survey, { colour: '#00aa00' })
+    doc = addEntity(doc, { ...line, layerId: survey, colour: '#ff0000' })
+    doc = addEntity(doc, { ...circle, layerId: survey })
+
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, doc, viewport, options)
+
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: ['#ff0000'] })
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: ['#00aa00'] })
+  })
+
+  it('draws an entity on an unknown layer with the fallback ink', () => {
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, docWith({ ...line, layerId: 'ghost' }), viewport, options)
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.ink] })
+  })
+
+  it('lets the selection highlight win over an entity colour override', () => {
+    const { ctx, calls } = createCtxStub()
+    const override = { ...line, colour: '#ff0000' }
+    renderScene(ctx, docWith(override), viewport, { ...options, selectedId: line.id })
+
+    // The override paints the committed pass…
+    const lastOverride = calls.map(c => c.method === 'set:strokeStyle' && c.args[0] === '#ff0000').lastIndexOf(true)
+    // …but the highlight afterwards carries the selection style, not the colour.
+    const selection = calls.findIndex(
+      (c, index) => index > lastOverride && c.method === 'set:strokeStyle' && c.args[0] === options.theme.selection
+    )
+    expect(selection).toBeGreaterThan(lastOverride)
   })
 
   it('highlights a selected text entity with the selection fill', () => {

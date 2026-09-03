@@ -10,6 +10,7 @@ import {
   addLayer,
   createDocument,
   createEntityId,
+  DEFAULT_COLOUR,
   deserializeDocument,
   DocumentParseError,
   entitiesOnLayer,
@@ -61,7 +62,7 @@ describe('createDocument', () => {
   it('creates an empty document with a default active layer', () => {
     expect(createDocument()).toEqual({
       entities: [],
-      layers: [{ id: 'layer-0', name: 'Default', visible: true, locked: false }],
+      layers: [{ id: 'layer-0', name: 'Default', visible: true, locked: false, colour: DEFAULT_COLOUR }],
       activeLayerId: 'layer-0',
     })
   })
@@ -189,6 +190,22 @@ describe('serialize/deserialize round-trip', () => {
     doc = updateLayer(doc, 'layer-0', { visible: false, locked: true })
     expect(deserializeDocument(serializeDocument(doc))).toEqual(doc)
   })
+
+  it('round-trips layer and entity colours', () => {
+    let doc = addLayer(createDocument(), 'Survey')
+    const survey = doc.layers[1]!.id
+    doc = updateLayer(doc, survey, { colour: '#7c5cbf' })
+    doc = addEntity(doc, { ...line, colour: '#b45309' })
+    const restored = deserializeDocument(serializeDocument(doc))
+    expect(layerById(restored, survey)?.colour).toBe('#7c5cbf')
+    expect(restored.entities[0]?.colour).toBe('#b45309')
+  })
+
+  it('omits the colour key for entities without an override', () => {
+    const doc = addEntity(createDocument(), line)
+    const parsed = JSON.parse(serializeDocument(doc)) as { entities: Array<Record<string, unknown>> }
+    expect(Object.hasOwn(parsed.entities[0]!, 'colour')).toBe(false)
+  })
 })
 
 describe('deserializeDocument', () => {
@@ -244,6 +261,25 @@ describe('deserializeDocument', () => {
       entities: [],
     })
     expect(() => deserializeDocument(badFlags)).toThrow(DocumentParseError)
+
+    const badColour = JSON.stringify({
+      layers: [{ id: 'layer-1', name: 'X', visible: true, locked: false, colour: 12 }],
+      entities: [],
+    })
+    expect(() => deserializeDocument(badColour)).toThrow(DocumentParseError)
+  })
+
+  it('defaults a legacy layer colour to the default ink', () => {
+    const json = JSON.stringify({
+      layers: [{ id: 'layer-1', name: 'X', visible: true, locked: false }],
+      entities: [],
+    })
+    expect(deserializeDocument(json).layers[0]?.colour).toBe(DEFAULT_COLOUR)
+  })
+
+  it('throws DocumentParseError on a non-string entity colour', () => {
+    const json = JSON.stringify({ entities: [{ ...line, colour: true }] })
+    expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
   })
 })
 
@@ -261,8 +297,8 @@ describe('layer operations', () => {
     const doc = createDocument()
     const next = addLayer(doc, 'Survey')
     expect(next.layers).toEqual([
-      { id: 'layer-0', name: 'Default', visible: true, locked: false },
-      { id: 'layer-1', name: 'Survey', visible: true, locked: false },
+      { id: 'layer-0', name: 'Default', visible: true, locked: false, colour: DEFAULT_COLOUR },
+      { id: 'layer-1', name: 'Survey', visible: true, locked: false, colour: DEFAULT_COLOUR },
     ])
     expect(doc.layers).toHaveLength(1)
   })

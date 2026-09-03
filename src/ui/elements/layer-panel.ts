@@ -6,7 +6,7 @@
 import type { EntityId, Layer } from '../../document.js'
 import { escapeHtml } from '../lib/escape.js'
 
-export type LayerPanelOp = 'add' | 'rename' | 'visibility' | 'lock' | 'activate' | 'remove'
+export type LayerPanelOp = 'add' | 'rename' | 'visibility' | 'lock' | 'activate' | 'remove' | 'colour'
 
 export interface LayerPanelChange {
   op: LayerPanelOp
@@ -71,14 +71,17 @@ export class LayerPanel extends HTMLElement {
   }
 
   #rowHtml(layer: Layer): string {
-    // Layer names are user data — every interpolation is escaped.
+    // Layer names and colours are user data — every interpolation is escaped.
     const name = escapeHtml(layer.name)
+    const colour = escapeHtml(layer.colour)
     const active = layer.id === this.#activeLayerId
     const lastLayer = this.#layers.length <= 1
     return `
       <li class="layer-row" data-layer-id="${layer.id}">
         <button type="button" class="layer-active" role="radio" aria-checked="${active}"
           aria-label="Make ${name} the active layer" title="Set active"></button>
+        <input type="color" class="layer-colour" value="${colour}"
+          aria-label="Colour of layer ${name}" title="Layer colour" />
         <button type="button" class="layer-name" title="Rename layer">${name}</button>
         <button type="button" class="layer-visible" aria-pressed="${layer.visible}"
           aria-label="${layer.visible ? 'Hide' : 'Show'} layer ${name}">${layer.visible ? ICON_VISIBLE : ICON_HIDDEN}</button>
@@ -97,6 +100,7 @@ export class LayerPanel extends HTMLElement {
 
     this.addEventListener('click', this.#onClick, opts)
     this.addEventListener('keydown', this.#onKeydown, opts)
+    this.addEventListener('change', this.#onColour, opts)
   }
 
   cleanup(): void {
@@ -148,8 +152,15 @@ export class LayerPanel extends HTMLElement {
     }
   }
 
+  #onColour = (event: Event): void => {
+    if (!(event.target instanceof HTMLInputElement) || !event.target.classList.contains('layer-colour')) return
+    const row = event.target.closest<HTMLLIElement>('.layer-row')
+    const layer = row !== null ? this.#layerOf(row.dataset.layerId ?? '') : undefined
+    if (layer !== undefined) this.#emit('colour', layer.id, event.target.value)
+  }
+
   #onKeydown = (event: KeyboardEvent): void => {
-    if (!(event.target instanceof HTMLInputElement)) return
+    if (!(event.target instanceof HTMLInputElement) || !event.target.classList.contains('layer-rename')) return
     if (event.key === 'Enter') {
       event.preventDefault()
       this.#commitRename(event.target.value)
