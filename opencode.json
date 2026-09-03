@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "command": {
+    "next": {
+      "description": "Implement the next incomplete plan ticket",
+      "template": "Load the `next` skill and follow its workflow. $ARGUMENTS, if present, is a ticket number to target instead of the first incomplete one."
+    }
+  },
+  "permission": {
+    "edit": { "**/.env": "deny" }
+  },
+  "skills": {
+    "paths": [".claude/skills"]
+  }
+}

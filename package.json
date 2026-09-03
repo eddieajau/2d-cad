@@ -1,0 +1,38 @@
+{
+  "name": "2d-cad",
+  "version": "0.1.0",
+  "private": "true",
+  "description": "A simple application for basic 2D drafting",
+  "license": "MIT",
+  "author": "Andrew Eddie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eddieajau/2d-cad.git"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --reporter=dot",
+    "build": "esbuild src/main.ts --bundle --format=esm --outfile=www/js/main.js --tsconfig=tsconfig.json",
+    "dev": "concurrently -n serve,browser -c cyan,magenta \"npm:dev:serve\" \"npm:dev:browser\"",
+    "dev:serve": "serve www -l 5173 --no-clipboard",
+    "dev:browser": "esbuild src/main.ts --bundle --format=esm --outfile=www/js/main.js --tsconfig=tsconfig.json --watch",
+    "serve": "serve www -l 5173 --no-clipboard",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "oxfmt check . && oxlint . && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "concurrently": "^10.0.5",
+    "esbuild": "^0.25.12",
+    "happy-dom": "^20.13.2",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.81.0",
+    "serve": "^14.2.6",
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.7"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}
