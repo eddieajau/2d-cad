@@ -3,6 +3,8 @@
  * @license   MIT
  */
 
+import '../pages/canvas/index.js'
+
 export class AppShell extends HTMLElement {
   connectedCallback(): void {
     this.render()
@@ -14,7 +16,7 @@ export class AppShell extends HTMLElement {
         <a class="brand" href="#/">2D CAD</a>
       </header>
       <main class="app-main">
-        <p class="hello">Hello, world</p>
+        <cad-canvas></cad-canvas>
       </main>
     `
   }
