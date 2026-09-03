@@ -6,7 +6,14 @@
 import { describe, expect, it } from 'vitest'
 
 import { createDocument, type Entity } from './document.js'
-import { distanceToCircle, distanceToLineSegment, distanceToRect, hitTest } from './hit-test.js'
+import {
+  distanceToCircle,
+  distanceToDim,
+  distanceToLineSegment,
+  distanceToRect,
+  distanceToText,
+  hitTest,
+} from './hit-test.js'
 
 const p = (x: number, y: number) => ({ x, y })
 
@@ -60,6 +67,37 @@ describe('distanceToRect', () => {
   })
 })
 
+describe('distanceToText', () => {
+  const text = { id: 't1', type: 'text', x: 0, y: 0, text: 'ab', size: 5 } as const
+
+  it('hits interior points at zero', () => {
+    // Approximate bbox width: 2 × 0.6 × 5 = 6.
+    expect(distanceToText(p(3, 2), text)).toBe(0)
+    expect(distanceToText(p(0.5, 0.5), text)).toBe(0)
+  })
+
+  it('measures to the nearest edge outside', () => {
+    expect(distanceToText(p(3, 7), text)).toBe(2)
+    expect(distanceToText(p(9, 2), text)).toBe(3)
+  })
+})
+
+describe('distanceToDim', () => {
+  // Measured segment (0,0)–(10,0); dimension line offset +3 → (0,3)–(10,3).
+  const dim = { id: 'd1', type: 'dim', x1: 0, y1: 0, x2: 10, y2: 0, offset: 3 } as const
+
+  it('measures to the dimension line, not the measured segment', () => {
+    expect(distanceToDim(p(5, 3), dim)).toBe(0)
+    expect(distanceToDim(p(5, 4), dim)).toBe(1)
+    // A point on the measured segment is 3 away from the dimension line.
+    expect(distanceToDim(p(5, 0), dim)).toBe(3)
+  })
+
+  it('clamps to the dimension line endpoints', () => {
+    expect(distanceToDim(p(-3, 3), dim)).toBe(3)
+  })
+})
+
 describe('hitTest', () => {
   const entities: Entity[] = [
     { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
@@ -87,5 +125,18 @@ describe('hitTest', () => {
     expect(hitTest(doc, p(25, 0), 0.5)?.id).toBe('e3')
     expect(hitTest(doc, p(20, 5.5), 0.5)?.id).toBe('e3')
     expect(hitTest(doc, p(5, 0), 0.5)?.id).toBe('e1')
+  })
+
+  it('hits text and dim entities through the document', () => {
+    const annotated = {
+      entities: [
+        ...entities,
+        { id: 'e4', type: 'text', x: 30, y: 10, text: 'ab', size: 5 },
+        { id: 'e5', type: 'dim', x1: 0, y1: -10, x2: 10, y2: -10, offset: 2 },
+      ] satisfies Entity[],
+    }
+    expect(hitTest(annotated, p(32, 12), 1)?.id).toBe('e4')
+    // The dimension line sits at y = -8 (offset +2 from y = -10).
+    expect(hitTest(annotated, p(5, -8), 0.5)?.id).toBe('e5')
   })
 })

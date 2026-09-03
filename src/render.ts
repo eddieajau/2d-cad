@@ -3,8 +3,18 @@
  * @license   MIT
  */
 
-import type { DrawingDocument, Entity, EntityId, LineEntity, CircleEntity, RectEntity } from './document.js'
-import { visibleWorldRect, worldToScreen, type Viewport, type WorldRect } from './viewport.js'
+import type {
+  DrawingDocument,
+  Entity,
+  EntityId,
+  LineEntity,
+  CircleEntity,
+  RectEntity,
+  TextEntity,
+  DimEntity,
+} from './document.js'
+import { dimLine, textBounds } from './geometry.js'
+import { visibleWorldRect, worldToScreen, type Viewport, type WorldPoint, type WorldRect } from './viewport.js'
 
 export interface RenderTheme {
   readonly gridMinor: string
@@ -29,6 +39,11 @@ const PREVIEW_DASH = [9, 3]
 /** Smallest on-screen grid spacing, in pixels. */
 const MIN_GRID_PX = 8
 
+/** Screen-constant sizes for dimension furniture, in pixels. */
+const DIM_OVERSHOOT_PX = 4
+const DIM_ARROW_PX = 8
+const DIM_LABEL_GAP_PX = 4
+
 /**
  * Grid intervals for the current scale: the smallest power of ten whose
  * on-screen spacing is at least {@link MIN_GRID_PX}, with majors every
@@ -42,6 +57,11 @@ export function gridInterval(scale: number): { minor: number; major: number } {
 
 function formatCoord(value: number): string {
   return String(Number(value.toPrecision(12)))
+}
+
+/** The measured length of a linear dimension, formatted for its label. */
+export function formatLength(length: number): string {
+  return formatCoord(length)
 }
 
 function lineBounds(e: LineEntity): WorldRect {
@@ -66,6 +86,16 @@ function rectBounds(e: RectEntity): WorldRect {
   }
 }
 
+function dimBounds(e: DimEntity): WorldRect {
+  const { a, b } = dimLine(e)
+  return {
+    minX: Math.min(e.x1, e.x2, a.x, b.x),
+    minY: Math.min(e.y1, e.y2, a.y, b.y),
+    maxX: Math.max(e.x1, e.x2, a.x, b.x),
+    maxY: Math.max(e.y1, e.y2, a.y, b.y),
+  }
+}
+
 export function entityBounds(entity: Entity): WorldRect {
   switch (entity.type) {
     case 'line':
@@ -74,6 +104,10 @@ export function entityBounds(entity: Entity): WorldRect {
       return circleBounds(entity)
     case 'rect':
       return rectBounds(entity)
+    case 'text':
+      return textBounds(entity)
+    case 'dim':
+      return dimBounds(entity)
   }
 }
 
@@ -87,6 +121,12 @@ function drawEntity(ctx: CanvasRenderingContext2D, entity: Entity, v: Viewport):
       break
     case 'rect':
       drawRect(ctx, entity, v)
+      break
+    case 'text':
+      drawText(ctx, entity, v)
+      break
+    case 'dim':
+      drawDim(ctx, entity, v)
       break
   }
 }
@@ -114,6 +154,95 @@ export function drawCircle(ctx: CanvasRenderingContext2D, e: CircleEntity, v: Vi
 export function drawRect(ctx: CanvasRenderingContext2D, e: RectEntity, v: Viewport): void {
   const origin = worldToScreen(v, e.x, e.y + e.h)
   ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
+}
+
+/**
+ * Text drawn at its world anchor: the entity's size is in world units, so
+ * the on-screen font size is `size * scale` — the text scales with zoom,
+ * keeping a constant footprint in world space.
+ */
+export function drawText(ctx: CanvasRenderingContext2D, e: TextEntity, v: Viewport): void {
+  const anchor = worldToScreen(v, e.x, e.y)
+  ctx.font = `${e.size * v.scale}px sans-serif`
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(e.text, anchor.sx, anchor.sy)
+}
+
+/** A filled triangular arrowhead at `tip`, pointing outward along `dir`. */
+function drawArrow(ctx: CanvasRenderingContext2D, tip: WorldPoint, dir: WorldPoint): void {
+  const px = -dir.y
+  const py = dir.x
+  const baseX = tip.x - dir.x * DIM_ARROW_PX
+  const baseY = tip.y - dir.y * DIM_ARROW_PX
+  const halfWidth = DIM_ARROW_PX * 0.3
+  ctx.beginPath()
+  ctx.moveTo(tip.x, tip.y)
+  ctx.lineTo(baseX + px * halfWidth, baseY + py * halfWidth)
+  ctx.lineTo(baseX - px * halfWidth, baseY - py * halfWidth)
+  ctx.closePath()
+  ctx.fill()
+}
+
+/**
+ * Linear dimension: extension lines from the measured points past the
+ * dimension line, the dimension line itself with outward arrowheads, and a
+ * centred length label. Furniture sizes are screen-constant (px-based) so
+ * the dimension reads the same at any zoom; the label carries the measured
+ * world length.
+ */
+export function drawDim(ctx: CanvasRenderingContext2D, e: DimEntity, v: Viewport): void {
+  const { a, b } = dimLine(e)
+  const da = worldToScreen(v, a.x, a.y)
+  const db = worldToScreen(v, b.x, b.y)
+  const p1 = worldToScreen(v, e.x1, e.y1)
+  const p2 = worldToScreen(v, e.x2, e.y2)
+
+  // Extension lines, overshooting the dimension line slightly.
+  const drawExtension = (from: { sx: number; sy: number }, to: { sx: number; sy: number }): void => {
+    const dx = to.sx - from.sx
+    const dy = to.sy - from.sy
+    const length = Math.hypot(dx, dy)
+    if (length === 0) return
+    ctx.beginPath()
+    ctx.moveTo(from.sx, from.sy)
+    ctx.lineTo(to.sx + (dx / length) * DIM_OVERSHOOT_PX, to.sy + (dy / length) * DIM_OVERSHOOT_PX)
+    ctx.stroke()
+  }
+  drawExtension(p1, da)
+  drawExtension(p2, db)
+
+  // Dimension line with outward arrowheads at both ends.
+  ctx.beginPath()
+  ctx.moveTo(da.sx, da.sy)
+  ctx.lineTo(db.sx, db.sy)
+  ctx.stroke()
+  const length = Math.hypot(db.sx - da.sx, db.sy - da.sy)
+  if (length > 0) {
+    const inward = { x: (db.sx - da.sx) / length, y: (db.sy - da.sy) / length }
+    drawArrow(ctx, { x: da.sx, y: da.sy }, { x: -inward.x, y: -inward.y })
+    drawArrow(ctx, { x: db.sx, y: db.sy }, inward)
+  }
+
+  // Length label, centred on the dimension line and nudged to its far side
+  // (away from the measured geometry) along the screen-space normal.
+  const mid = { sx: (da.sx + db.sx) / 2, sy: (da.sy + db.sy) / 2 }
+  if (length > 0) {
+    const nx = -(db.sy - da.sy) / length
+    const ny = (db.sx - da.sx) / length
+    // The measured line's normal (da - p1 direction) decides which side is "far".
+    const away = (da.sx - p1.sx) * nx + (da.sy - p1.sy) * ny
+    const sign = away >= 0 ? 1 : -1
+    ctx.font = '10px sans-serif'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    ctx.fillText(
+      formatLength(Math.hypot(e.x2 - e.x1, e.y2 - e.y1)),
+      mid.sx + nx * sign * (DIM_LABEL_GAP_PX + DIM_ARROW_PX),
+      mid.sy + ny * sign * (DIM_LABEL_GAP_PX + DIM_ARROW_PX)
+    )
+    ctx.textAlign = 'start'
+    ctx.textBaseline = 'alphabetic'
+  }
 }
 
 export function renderGrid(ctx: CanvasRenderingContext2D, v: Viewport, opts: RenderOptions): void {
@@ -190,7 +319,9 @@ export function renderScene(
   // id) as a dashed ghost, leaving the original highlighted in place.
   const draggingSelection = preview !== undefined && opts.selectedId != null && preview.id === opts.selectedId
 
+  // Filled draws (text, dim labels/arrowheads) share the ink colour with strokes.
   ctx.strokeStyle = opts.theme.ink
+  ctx.fillStyle = opts.theme.ink
   ctx.lineWidth = 1
   for (const entity of doc.entities) {
     if (preview !== undefined && entity.id === preview.id) continue
@@ -204,6 +335,7 @@ export function renderScene(
     if (intersects(entityBounds(highlight), visible)) {
       ctx.save()
       ctx.strokeStyle = opts.theme.selection
+      ctx.fillStyle = opts.theme.selection
       ctx.lineWidth = 2
       drawEntity(ctx, highlight, v)
       ctx.restore()

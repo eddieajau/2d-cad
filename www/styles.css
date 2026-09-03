@@ -75,6 +75,25 @@ cad-canvas {
   width: 100%;
   height: 100%;
   outline: none;
+  position: relative;
+}
+
+/* Inline text editor, positioned over the canvas by the element itself. */
+cad-canvas input.text-entry {
+  position: absolute;
+  transform: translateY(-100%);
+  min-width: 6ch;
+  padding: 0 2px;
+  font-family: var(--font);
+  color: var(--canvas-ink);
+  background: var(--surface);
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+}
+
+cad-canvas input.text-entry:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 cad-canvas:focus-visible {

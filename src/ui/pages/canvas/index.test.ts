@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createDocument, addEntity } from '../../../document.js'
+import { TEXT_DEFAULT_SIZE } from '../../../tools/text.js'
 import type { ToolId } from '../../../tools/types.js'
 import './index.js'
 import { CadCanvas } from './index.js'
@@ -481,6 +482,149 @@ describe('cad-canvas', () => {
       pointer(el, 'pointerdown', 565, 494)
 
       expect(el.getSelection()).toBe('e1')
+
+      el.remove()
+    })
+  })
+
+  describe('text tool', () => {
+    function makeTextScene(): { el: CadCanvas; input: HTMLInputElement } {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setTool('text')
+      pointer(el, 'pointerdown', 10, 10)
+      const input = el.querySelector<HTMLInputElement>('input.text-entry')!
+      return { el, input }
+    }
+
+    it('opens the inline editor at the clicked anchor', () => {
+      const { el, input } = makeTextScene()
+      expect(input).not.toBeNull()
+      expect(document.activeElement).toBe(input)
+      expect(input.style.left).toBe('10px')
+      expect(input.style.top).toBe('10px')
+      el.remove()
+    })
+
+    it('Enter commits a text entity at the anchor and refocuses the canvas', () => {
+      const { el, input } = makeTextScene()
+      input.value = 'note'
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+      expect(el.getDocument().entities).toEqual([
+        { id: expect.any(String), type: 'text', x: 10, y: -10, text: 'note', size: TEXT_DEFAULT_SIZE },
+      ])
+      expect(el.querySelector('input.text-entry')).toBeNull()
+      expect(document.activeElement).toBe(el)
+
+      el.remove()
+    })
+
+    it('Escape cancels without committing and refocuses the canvas', () => {
+      const { el, input } = makeTextScene()
+      input.value = 'note'
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+      expect(el.getDocument().entities).toHaveLength(0)
+      expect(el.querySelector('input.text-entry')).toBeNull()
+      expect(document.activeElement).toBe(el)
+
+      el.remove()
+    })
+
+    it('blur commits the text', () => {
+      const { el, input } = makeTextScene()
+      input.value = 'blurry'
+      input.dispatchEvent(new Event('blur'))
+
+      expect(el.getDocument().entities).toEqual([expect.objectContaining({ type: 'text', text: 'blurry' })])
+
+      el.remove()
+    })
+
+    it('a blank entry commits nothing', () => {
+      const { el, input } = makeTextScene()
+      input.value = '   '
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+      expect(el.getDocument().entities).toHaveLength(0)
+      expect(el.querySelector('input.text-entry')).toBeNull()
+
+      el.remove()
+    })
+
+    it('canvas shortcuts are suppressed while the editor has focus', () => {
+      const { el, input } = makeTextScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:snap', event => events.push(event as CustomEvent))
+
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))
+      expect(events).toHaveLength(0)
+
+      el.remove()
+    })
+
+    it('switching tools closes an open editor', () => {
+      const { el } = makeTextScene()
+      el.setTool('line')
+      expect(el.querySelector('input.text-entry')).toBeNull()
+      el.remove()
+    })
+
+    it('commit flows through cad-canvas:commit for the history', () => {
+      const { el, input } = makeTextScene()
+      const commits: CustomEvent[] = []
+      el.addEventListener('cad-canvas:commit', event => commits.push(event as CustomEvent))
+
+      input.value = 'note'
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+      expect(commits).toHaveLength(1)
+      expect(commits[0].detail.document).toBe(el.getDocument())
+
+      el.remove()
+    })
+  })
+
+  describe('dim tool', () => {
+    it('two clicks plus an offset drag commit a dimension', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setTool('dim')
+
+      pointer(el, 'pointerdown', 0, 0)
+      pointer(el, 'pointerup', 0, 0)
+      pointer(el, 'pointerdown', 40, 0)
+      // Screen y = -5 is world y = +5 (y-up world): a drag "above" the line.
+      pointer(el, 'pointermove', 20, -5)
+      pointer(el, 'pointerup', 20, -5)
+
+      // screenToWorld negates y, so a world y of 0 arrives as -0.
+      expect(el.getDocument().entities).toEqual([
+        { id: expect.any(String), type: 'dim', x1: 0, y1: -0, x2: 40, y2: -0, offset: 5 },
+      ])
+
+      el.remove()
+    })
+
+    it('previews the dimension with the offset during the drag', async () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setTool('dim')
+
+      pointer(el, 'pointerdown', 0, 0)
+      pointer(el, 'pointerup', 0, 0)
+      pointer(el, 'pointerdown', 40, 0)
+      pointer(el, 'pointermove', 20, -8)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+
+      const lastCall = renderSceneMock.mock.calls.at(-1)!
+      expect(lastCall[3].preview).toMatchObject({ type: 'dim', x2: 40, offset: 8 })
 
       el.remove()
     })

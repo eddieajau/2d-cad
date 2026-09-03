@@ -11,7 +11,14 @@ export interface ToolPaletteEventMap {
 
 type ToolPaletteAttribute = 'tools' | 'active'
 
-const TOOL_LABELS: Record<ToolId, string> = { select: 'Select', line: 'Line', rect: 'Rect', circle: 'Circle' }
+const TOOL_LABELS: Record<ToolId, string> = {
+  select: 'Select',
+  line: 'Line',
+  rect: 'Rect',
+  circle: 'Circle',
+  text: 'Text',
+  dim: 'Dim',
+}
 
 // Decorative glyphs; the text label carries the accessible name.
 const TOOL_ICONS: Record<ToolId, string> = {
@@ -21,9 +28,11 @@ const TOOL_ICONS: Record<ToolId, string> = {
   rect: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="4" width="11" height="8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   circle:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+  text: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v2.5M8 3v10M6 13h4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+  dim: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 11V5m12 6V5M2 8h12M4 6.5 2 8l2 1.5M12 6.5 14 8l-2 1.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
 }
 
-const SHORTCUTS: Record<string, ToolId> = { l: 'line', r: 'rect', c: 'circle' }
+const SHORTCUTS: Record<string, ToolId> = { l: 'line', r: 'rect', c: 'circle', t: 'text', d: 'dim' }
 
 function parseToolId(value: string | null | undefined): ToolId | null {
   return value != null && value in TOOL_LABELS ? (value as ToolId) : null

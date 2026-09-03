@@ -3,8 +3,9 @@
  * @license   MIT
  */
 
-import type { CircleEntity, DrawingDocument, Entity, RectEntity } from './document.js'
-import type { WorldPoint } from './viewport.js'
+import type { CircleEntity, DimEntity, DrawingDocument, Entity, RectEntity, TextEntity } from './document.js'
+import { dimLine, textBounds } from './geometry.js'
+import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
  * Geometric hit testing in world space — a zoom-independent replacement for
@@ -29,20 +30,39 @@ export function distanceToCircle(p: WorldPoint, e: CircleEntity): number {
 }
 
 /**
- * Distance from `p` to a rect's boundary. Interior points hit at 0
+ * Distance from `p` to a world rect's boundary. Interior points hit at 0
  * (edge-or-interior semantics).
  */
-export function distanceToRect(p: WorldPoint, e: RectEntity): number {
-  const x2 = e.x + e.w
-  const y2 = e.y + e.h
-  if (p.x >= e.x && p.x <= x2 && p.y >= e.y && p.y <= y2) return 0
+export function distanceToWorldRect(p: WorldPoint, r: WorldRect): number {
+  if (p.x >= r.minX && p.x <= r.maxX && p.y >= r.minY && p.y <= r.maxY) return 0
   const corners = [
-    { x: e.x, y: e.y },
-    { x: x2, y: e.y },
-    { x: x2, y: y2 },
-    { x: e.x, y: y2 },
+    { x: r.minX, y: r.minY },
+    { x: r.maxX, y: r.minY },
+    { x: r.maxX, y: r.maxY },
+    { x: r.minX, y: r.maxY },
   ]
   return Math.min(...corners.map((corner, i) => distanceToLineSegment(p, corner, corners[(i + 1) % corners.length])))
+}
+
+/** Distance from `p` to a rect's boundary (edge-or-interior semantics). */
+export function distanceToRect(p: WorldPoint, e: RectEntity): number {
+  return distanceToWorldRect(p, {
+    minX: Math.min(e.x, e.x + e.w),
+    minY: Math.min(e.y, e.y + e.h),
+    maxX: Math.max(e.x, e.x + e.w),
+    maxY: Math.max(e.y, e.y + e.h),
+  })
+}
+
+/** Distance from `p` to a text entity's bounding box (interior hits at 0). */
+export function distanceToText(p: WorldPoint, e: TextEntity): number {
+  return distanceToWorldRect(p, textBounds(e))
+}
+
+/** Distance from `p` to a dimension's offset dimension line. */
+export function distanceToDim(p: WorldPoint, e: DimEntity): number {
+  const { a, b } = dimLine(e)
+  return distanceToLineSegment(p, a, b)
 }
 
 export function distanceToEntity(p: WorldPoint, entity: Entity): number {
@@ -53,6 +73,10 @@ export function distanceToEntity(p: WorldPoint, entity: Entity): number {
       return distanceToCircle(p, entity)
     case 'rect':
       return distanceToRect(p, entity)
+    case 'text':
+      return distanceToText(p, entity)
+    case 'dim':
+      return distanceToDim(p, entity)
   }
 }
 

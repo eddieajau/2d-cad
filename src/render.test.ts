@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { addEntity, createDocument, type DrawingDocument, type Entity } from './document.js'
-import { gridInterval, renderGrid, renderScene, type RenderOptions } from './render.js'
+import { drawDim, drawText, gridInterval, renderGrid, renderScene, type RenderOptions } from './render.js'
 import type { Viewport } from './viewport.js'
 
 interface Call {
@@ -75,6 +75,25 @@ describe('renderScene', () => {
     expect(calls).toContainEqual({ method: 'lineTo', args: [50, 270] })
     expect(calls.some(c => c.method === 'arc')).toBe(true)
     expect(calls.some(c => c.method === 'strokeRect' && c.args[0] === 20 && c.args[1] === 270)).toBe(true)
+  })
+
+  it('renders text and dim entities with the ink fill', () => {
+    const { ctx, calls } = createCtxStub()
+    const text = { id: 't1', type: 'text', x: 10, y: 10, text: 'note', size: 12 } as const
+    const dim = { id: 'd1', type: 'dim', x1: 0, y1: 0, x2: 40, y2: 0, offset: 5 } as const
+    renderScene(ctx, docWith(text, dim), viewport, options)
+
+    expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.ink] })
+    expect(calls.some(c => c.method === 'fillText' && c.args[0] === 'note')).toBe(true)
+    expect(calls.some(c => c.method === 'fillText' && c.args[0] === '40')).toBe(true)
+  })
+
+  it('highlights a selected text entity with the selection fill', () => {
+    const { ctx, calls } = createCtxStub()
+    const text = { id: 't1', type: 'text', x: 10, y: 10, text: 'note', size: 12 } as const
+    renderScene(ctx, docWith(text), viewport, { ...options, selectedId: 't1' })
+
+    expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.selection] })
   })
 
   it('culls entities outside the visible world rect', () => {
@@ -179,5 +198,57 @@ describe('renderScene', () => {
     // …and the clone is previewed dashed at the dragged position.
     expect(calls).toContainEqual({ method: 'setLineDash', args: [[9, 3]] })
     expect(calls).toContainEqual({ method: 'lineTo', args: [60, 270] })
+  })
+})
+
+describe('drawText', () => {
+  it('scales the font by the viewport and fills at the anchor', () => {
+    const { ctx, calls } = createCtxStub()
+    drawText(ctx, { id: 't1', type: 'text', x: 10, y: 20, text: 'note', size: 12 }, viewport)
+    expect(calls).toContainEqual({ method: 'set:font', args: ['12px sans-serif'] })
+    expect(calls).toContainEqual({ method: 'fillText', args: ['note', 10, 280] })
+  })
+
+  it('zooms the font with the viewport scale', () => {
+    const { ctx, calls } = createCtxStub()
+    drawText(ctx, { id: 't1', type: 'text', x: 0, y: 0, text: 'A', size: 12 }, { offsetX: 0, offsetY: 0, scale: 2 })
+    expect(calls).toContainEqual({ method: 'set:font', args: ['24px sans-serif'] })
+  })
+})
+
+describe('drawDim', () => {
+  // Measured (0,0)→(40,0), dimension line offset +5 → (0,5)→(40,5).
+  const dim = { id: 'd1', type: 'dim', x1: 0, y1: 0, x2: 40, y2: 0, offset: 5 } as const
+
+  it('labels the measured world length, centred on the dimension line', () => {
+    const { ctx, calls } = createCtxStub()
+    drawDim(ctx, dim, viewport)
+    const label = calls.find(c => c.method === 'fillText')
+    expect(label).toEqual({ method: 'fillText', args: ['40', 20, expect.any(Number)] })
+    expect(label!.args[2] as number).toBeLessThan(295) // above the dimension line (y=295)
+  })
+
+  it('draws the dimension line, extension lines, and arrowheads', () => {
+    const { ctx, calls } = createCtxStub()
+    drawDim(ctx, dim, viewport)
+    // Dimension line runs between the offset endpoints.
+    expect(calls).toContainEqual({ method: 'moveTo', args: [0, 295] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [40, 295] })
+    // Extension lines start at the measured points.
+    expect(calls).toContainEqual({ method: 'moveTo', args: [0, 300] })
+    expect(calls).toContainEqual({ method: 'moveTo', args: [40, 300] })
+    // Two arrowheads: filled triangles.
+    const fills = calls.filter(c => c.method === 'fill')
+    expect(fills).toHaveLength(2)
+  })
+
+  it('measures correctly at any zoom (world-space length, screen-space furniture)', () => {
+    const zoomed: Viewport = { offsetX: 100, offsetY: 500, scale: 0.25 }
+    const { ctx, calls } = createCtxStub()
+    drawDim(ctx, dim, zoomed)
+    // The label still reads the world length 40, at the smaller screen size.
+    const label = calls.find(c => c.method === 'fillText')
+    expect(label!.args[0]).toBe('40')
+    expect(calls).toContainEqual({ method: 'set:font', args: ['10px sans-serif'] })
   })
 })

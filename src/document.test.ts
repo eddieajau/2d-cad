@@ -17,8 +17,10 @@ import {
   translateEntity,
   updateEntity,
   type CircleEntity,
+  type DimEntity,
   type LineEntity,
   type RectEntity,
+  type TextEntity,
 } from './document.js'
 
 const line: LineEntity = {
@@ -110,6 +112,8 @@ describe('removeEntity', () => {
 
 describe('translateEntity', () => {
   const rect: RectEntity = { id: 'e3', type: 'rect', x: 1, y: 2, w: 3, h: 4 }
+  const text: TextEntity = { id: 'e4', type: 'text', x: 1, y: 2, text: 'note', size: 12 }
+  const dim: DimEntity = { id: 'e5', type: 'dim', x1: 0, y1: 0, x2: 10, y2: 0, offset: 3 }
 
   it('translates a line and does not mutate the input', () => {
     const moved = translateEntity(line, 10, -5)
@@ -124,11 +128,27 @@ describe('translateEntity', () => {
   it('translates a rect', () => {
     expect(translateEntity(rect, -3, 7)).toEqual({ ...rect, x: -2, y: 9 })
   })
+
+  it('translates a text anchor', () => {
+    expect(translateEntity(text, 2, 4)).toEqual({ ...text, x: 3, y: 6 })
+  })
+
+  it('translates a dim without touching its offset', () => {
+    expect(translateEntity(dim, 5, -1)).toEqual({ ...dim, x1: 5, y1: -1, x2: 15, y2: -1 })
+  })
 })
 
 describe('serialize/deserialize round-trip', () => {
   it('round-trips a document', () => {
     const doc = addEntity(addEntity(createDocument(), line), circle)
+    const restored = deserializeDocument(serializeDocument(doc))
+    expect(restored).toEqual(doc)
+  })
+
+  it('round-trips text and dim entities', () => {
+    const text: TextEntity = { id: 'e4', type: 'text', x: 1, y: 2, text: 'note', size: 12 }
+    const dim: DimEntity = { id: 'e5', type: 'dim', x1: 0, y1: 0, x2: 10, y2: 0, offset: 3 }
+    const doc = addEntity(addEntity(createDocument(), text), dim)
     const restored = deserializeDocument(serializeDocument(doc))
     expect(restored).toEqual(doc)
   })
@@ -160,6 +180,21 @@ describe('deserializeDocument', () => {
 
   it('throws DocumentParseError on a non-object entity', () => {
     const json = JSON.stringify({ entities: ['line'] })
+    expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+  })
+
+  it('throws DocumentParseError on a text entity without a string "text"', () => {
+    const json = JSON.stringify({ entities: [{ id: 'e1', type: 'text', x: 0, y: 0, size: 12 }] })
+    expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+  })
+
+  it('throws DocumentParseError on a text entity with non-finite values', () => {
+    const json = JSON.stringify({ entities: [{ id: 'e1', type: 'text', x: 0, y: 0, text: 'hi', size: NaN }] })
+    expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+  })
+
+  it('throws DocumentParseError on a dim entity with missing values', () => {
+    const json = JSON.stringify({ entities: [{ id: 'e1', type: 'dim', x1: 0, y1: 0, x2: 10, y2: 0 }] })
     expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
   })
 })

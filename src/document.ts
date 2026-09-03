@@ -31,7 +31,30 @@ export interface RectEntity {
   h: number
 }
 
-export type Entity = LineEntity | CircleEntity | RectEntity
+export interface TextEntity {
+  id: EntityId
+  type: 'text'
+  /** Baseline-left anchor point. */
+  x: number
+  y: number
+  text: string
+  /** Font size in world units. */
+  size: number
+}
+
+export interface DimEntity {
+  id: EntityId
+  type: 'dim'
+  /** The two measured points. */
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  /** Signed perpendicular distance of the dimension line (left positive). */
+  offset: number
+}
+
+export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity
 
 export interface DrawingDocument {
   readonly entities: readonly Entity[]
@@ -83,6 +106,16 @@ export function translateEntity(entity: Entity, dx: number, dy: number): Entity 
       return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy }
     case 'rect':
       return { ...entity, x: entity.x + dx, y: entity.y + dy }
+    case 'text':
+      return { ...entity, x: entity.x + dx, y: entity.y + dy }
+    case 'dim':
+      return {
+        ...entity,
+        x1: entity.x1 + dx,
+        y1: entity.y1 + dy,
+        x2: entity.x2 + dx,
+        y2: entity.y2 + dy,
+      }
   }
 }
 
@@ -121,6 +154,19 @@ function parseEntity(value: unknown): Entity {
         throw new DocumentParseError('Rect entity has missing or non-finite values')
       }
       return value as RectEntity
+    case 'text':
+      if (!isFiniteRecord(record, ['x', 'y', 'size'])) {
+        throw new DocumentParseError('Text entity has missing or non-finite values')
+      }
+      if (typeof record.text !== 'string') {
+        throw new DocumentParseError('Text entity must have a string "text"')
+      }
+      return value as TextEntity
+    case 'dim':
+      if (!isFiniteRecord(record, ['x1', 'y1', 'x2', 'y2', 'offset'])) {
+        throw new DocumentParseError('Dim entity has missing or non-finite values')
+      }
+      return value as DimEntity
     default:
       throw new DocumentParseError(`Unknown entity type: ${String(record.type)}`)
   }

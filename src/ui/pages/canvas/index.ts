@@ -17,11 +17,13 @@ import { hitTest } from '../../../hit-test.js'
 import { gridInterval, renderScene } from '../../../render.js'
 import { resolveSnapGrid, snapToGrid, type SnapMode } from '../../../snap.js'
 import { CircleTool } from '../../../tools/circle.js'
+import { DimTool } from '../../../tools/dim.js'
 import { LineTool } from '../../../tools/line.js'
 import { RectTool } from '../../../tools/rect.js'
 import { SELECT_TOLERANCE_PX, SelectTool, type SelectToolState } from '../../../tools/select.js'
+import { TextTool, TEXT_DEFAULT_SIZE, type TextToolState } from '../../../tools/text.js'
 import type { Tool, ToolCommit, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
-import { panBy, screenToWorld, zoomAt, type Viewport } from '../../../viewport.js'
+import { screenToWorld, worldToScreen, panBy, zoomAt, type Viewport, type WorldPoint } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
   'cad-canvas:pointer': CustomEvent<{ world: { x: number; y: number }; buttons: number }>
@@ -37,6 +39,8 @@ const TOOLS: Record<ToolId, Tool> = {
   line: new LineTool(),
   rect: new RectTool(),
   circle: new CircleTool(),
+  text: new TextTool(),
+  dim: new DimTool(),
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2
@@ -61,6 +65,8 @@ export class CadCanvas extends HTMLElement {
   #snapMode: SnapMode = 'off'
   #dirty = false
   #rafId = 0
+  #textInput: HTMLInputElement | null = null
+  #textAbort: AbortController | null = null
 
   constructor() {
     super()
@@ -109,6 +115,7 @@ export class CadCanvas extends HTMLElement {
     this.#abort = null
     this.#resizeObserver?.disconnect()
     this.#resizeObserver = null
+    this.#closeTextInput()
     cancelAnimationFrame(this.#rafId)
   }
 
@@ -148,6 +155,7 @@ export class CadCanvas extends HTMLElement {
   setTool(id: ToolId): void {
     const tool = TOOLS[id]
     if (tool === undefined || tool === this.#tool) return
+    this.#closeTextInput()
     this.#tool = tool
     this.#toolState = tool.init()
     this.#setSelection(null)
@@ -250,6 +258,7 @@ export class CadCanvas extends HTMLElement {
       if (result.commit) this.#applyCommit(result.commit)
       if (result.select !== undefined) this.#setSelection(result.select)
     }
+    this.#syncTextInput()
     this.invalidate()
 
     this.dispatchEvent(
@@ -262,6 +271,10 @@ export class CadCanvas extends HTMLElement {
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {
+    // The inline text editor handles its own keys (Enter/Escape); canvas
+    // shortcuts like `G` must not fire while the user is typing.
+    if (event.target instanceof HTMLInputElement) return
+
     if (event.key.toLowerCase() === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       this.#toggleSnap()
       return
@@ -345,6 +358,77 @@ export class CadCanvas extends HTMLElement {
         detail: { entity: commit.entity, document: this.#document },
       })
     )
+  }
+
+  /**
+   * Inline text entry: keep the `<input>` in step with the text tool's
+   * placing anchor. Light DOM, positioned over the canvas at the anchor's
+   * screen position; commit on Enter/blur, cancel on Escape, and focus
+   * always returns to the canvas.
+   */
+  #syncTextInput(): void {
+    const placing = this.#tool.id === 'text' ? (this.#toolState as TextToolState).placing : undefined
+    if (placing && this.#textInput === null) this.#openTextInput(placing)
+    if (!placing && this.#textInput !== null) this.#closeTextInput()
+  }
+
+  #openTextInput(at: WorldPoint): void {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'text-entry'
+    input.setAttribute('aria-label', 'Text content')
+    const pos = worldToScreen(this.#viewport, at.x, at.y)
+    input.style.left = `${pos.sx}px`
+    input.style.top = `${pos.sy}px`
+    input.style.fontSize = `${TEXT_DEFAULT_SIZE * this.#viewport.scale}px`
+    this.appendChild(input)
+    this.#textInput = input
+
+    this.#textAbort = new AbortController()
+    const opts = { signal: this.#textAbort.signal }
+    input.addEventListener('keydown', this.#onTextKey, opts)
+    input.addEventListener('blur', this.#onTextBlur, opts)
+    input.focus()
+  }
+
+  /** Detach the editor; listeners are aborted so blur cannot double-commit. */
+  #closeTextInput(): void {
+    this.#textAbort?.abort()
+    this.#textAbort = null
+    this.#textInput?.remove()
+    this.#textInput = null
+  }
+
+  #onTextKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      this.#commitTextInput(this.#textInput?.value ?? '')
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      const state = this.#toolState
+      this.#closeTextInput()
+      this.#toolState = this.#tool.onTextCommit?.(state, null)?.state ?? this.#tool.init()
+      this.focus()
+      this.invalidate()
+    }
+  }
+
+  #onTextBlur = (): void => {
+    // Removing the input aborts its listeners first, so programmatic closes
+    // never re-enter here.
+    const input = this.#textInput
+    if (input === null) return
+    this.#commitTextInput(input.value)
+  }
+
+  #commitTextInput(value: string): void {
+    const state = this.#toolState
+    this.#closeTextInput()
+    const result = this.#tool.onTextCommit?.(state, value)
+    this.#toolState = result ? result.state : this.#tool.init()
+    if (result?.commit) this.#applyCommit(result.commit)
+    this.focus()
+    this.invalidate()
   }
 
   #onWheel = (event: WheelEvent): void => {

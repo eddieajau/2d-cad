@@ -6,7 +6,7 @@
 import type { DrawingDocument, Entity, EntityId } from '../document.js'
 import type { Viewport, WorldPoint } from '../viewport.js'
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle'
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim'
 
 /** Snapshot of the drawing session handed to a tool with every event. */
 export interface ToolContext {
@@ -49,4 +49,10 @@ export interface Tool<S extends ToolState = ToolState> {
   onPointerUp(ctx: ToolContext, state: S, world: WorldPoint, ev: PointerEvent): ToolPointerResult<S>
   /** Optional keyboard hook; Escape-to-cancel is the expected use. */
   onKey?(state: S, ev: KeyboardEvent): S
+  /**
+   * Optional text-entry hook for tools that need inline text input. The
+   * canvas element owns the `<input>` and feeds the committed value here —
+   * `null` signals a cancelled entry. Only the text tool implements it.
+   */
+  onTextCommit?(state: S, value: string | null): ToolPointerResult<S>
 }
