@@ -29,7 +29,10 @@ describe('CircleTool', () => {
     expect(state.preview).toMatchObject({ type: 'circle', cx: 0, cy: 0, r: 5 })
 
     const result = tool.onPointerUp(ctx, state, { x: 3, y: 4 }, up)
-    expect(result.commit).toEqual({ id: expect.any(String), type: 'circle', cx: 0, cy: 0, r: 5 })
+    expect(result.commit).toEqual({
+      kind: 'add',
+      entity: { id: expect.any(String), type: 'circle', cx: 0, cy: 0, r: 5 },
+    })
     expect(result.state).toEqual({})
   })
 

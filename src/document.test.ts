@@ -14,9 +14,11 @@ import {
   getEntity,
   removeEntity,
   serializeDocument,
+  translateEntity,
   updateEntity,
   type CircleEntity,
   type LineEntity,
+  type RectEntity,
 } from './document.js'
 
 const line: LineEntity = {
@@ -103,6 +105,24 @@ describe('removeEntity', () => {
     const doc = addEntity(createDocument(), line)
     const next = removeEntity(doc, 'nope')
     expect(next.entities).toEqual([line])
+  })
+})
+
+describe('translateEntity', () => {
+  const rect: RectEntity = { id: 'e3', type: 'rect', x: 1, y: 2, w: 3, h: 4 }
+
+  it('translates a line and does not mutate the input', () => {
+    const moved = translateEntity(line, 10, -5)
+    expect(moved).toEqual({ ...line, x1: 10, y1: -5, x2: 20, y2: 0 })
+    expect(line).toEqual({ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 5 })
+  })
+
+  it('translates a circle', () => {
+    expect(translateEntity(circle, 1, 2)).toEqual({ ...circle, cx: 5, cy: 6 })
+  })
+
+  it('translates a rect', () => {
+    expect(translateEntity(rect, -3, 7)).toEqual({ ...rect, x: -2, y: 9 })
   })
 })
 

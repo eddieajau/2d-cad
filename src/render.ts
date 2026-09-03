@@ -183,26 +183,37 @@ export function renderScene(
   renderGrid(ctx, v, opts)
 
   const visible = visibleWorldRect(v, opts.width, opts.height)
+  const preview = opts.preview
+  // A move-drag's preview carries the selected entity's own id: the entity
+  // is drawn at its dragged position with the selection style and its
+  // committed geometry is skipped. A copy-drag previews a clone (different
+  // id) as a dashed ghost, leaving the original highlighted in place.
+  const draggingSelection = preview !== undefined && opts.selectedId != null && preview.id === opts.selectedId
+
   ctx.strokeStyle = opts.theme.ink
   ctx.lineWidth = 1
   for (const entity of doc.entities) {
+    if (preview !== undefined && entity.id === preview.id) continue
     if (!intersects(entityBounds(entity), visible)) continue
     drawEntity(ctx, entity, v)
   }
 
   const selected = opts.selectedId ? doc.entities.find(entity => entity.id === opts.selectedId) : undefined
-  if (selected && intersects(entityBounds(selected), visible)) {
-    ctx.save()
-    ctx.strokeStyle = opts.theme.selection
-    ctx.lineWidth = 2
-    drawEntity(ctx, selected, v)
-    ctx.restore()
+  if (selected) {
+    const highlight = draggingSelection && preview ? preview : selected
+    if (intersects(entityBounds(highlight), visible)) {
+      ctx.save()
+      ctx.strokeStyle = opts.theme.selection
+      ctx.lineWidth = 2
+      drawEntity(ctx, highlight, v)
+      ctx.restore()
+    }
   }
 
-  if (opts.preview) {
+  if (preview && !draggingSelection) {
     ctx.save()
     ctx.setLineDash(PREVIEW_DASH)
-    drawEntity(ctx, opts.preview, v)
+    drawEntity(ctx, preview, v)
     ctx.restore()
   }
 }

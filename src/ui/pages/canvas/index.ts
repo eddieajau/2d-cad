@@ -8,6 +8,7 @@ import {
   createDocument,
   getEntity,
   removeEntity,
+  updateEntity,
   type DrawingDocument,
   type Entity,
   type EntityId,
@@ -17,8 +18,8 @@ import { renderScene } from '../../../render.js'
 import { CircleTool } from '../../../tools/circle.js'
 import { LineTool } from '../../../tools/line.js'
 import { RectTool } from '../../../tools/rect.js'
-import { SelectTool } from '../../../tools/select.js'
-import type { Tool, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
+import { SELECT_TOLERANCE_PX, SelectTool, type SelectToolState } from '../../../tools/select.js'
+import type { Tool, ToolCommit, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
 import { panBy, screenToWorld, zoomAt, type Viewport } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
@@ -35,9 +36,6 @@ const TOOLS: Record<ToolId, Tool> = {
   rect: new RectTool(),
   circle: new CircleTool(),
 }
-
-/** Click tolerance for hit testing, in screen pixels. */
-const SELECT_TOLERANCE_PX = 8
 
 const MAX_DEVICE_PIXEL_RATIO = 2
 
@@ -232,7 +230,8 @@ export class CadCanvas extends HTMLElement {
     } else if (event.type === 'pointerup') {
       const result = this.#tool.onPointerUp(ctx, this.#toolState, world, event)
       this.#toolState = result.state
-      if (result.commit) this.#commit(result.commit)
+      if (result.commit) this.#applyCommit(result.commit)
+      if (result.select !== undefined) this.#setSelection(result.select)
     }
     this.invalidate()
 
@@ -246,13 +245,17 @@ export class CadCanvas extends HTMLElement {
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {
-    // Selection keyboard paths — only meaningful while the select tool is active.
-    if (this.#tool.id === 'select' && this.#selectedId !== null) {
+    if (this.#tool.id === 'select') {
+      // Escape cancels an in-progress drag (zero document delta — the
+      // document was never touched) or, when idle, clears the selection.
       if (event.key === 'Escape') {
-        this.#setSelection(null)
+        const wasDragging = (this.#toolState as SelectToolState).drag !== undefined
+        this.#toolState = this.#tool.onKey?.(this.#toolState, event) ?? this.#tool.init()
+        if (!wasDragging) this.#setSelection(null)
+        this.invalidate()
         return
       }
-      if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (this.#selectedId !== null && (event.key === 'Delete' || event.key === 'Backspace')) {
         event.preventDefault()
         this.#deleteSelected()
         return
@@ -282,6 +285,8 @@ export class CadCanvas extends HTMLElement {
     const id = this.#selectedId
     if (id === null) return
     const entity = getEntity(this.#document, id)
+    // A disappearing selection kills any drag referencing it.
+    this.#toolState = this.#tool.init()
     this.#setSelection(null)
     if (!entity) return
     this.#document = removeEntity(this.#document, id)
@@ -295,13 +300,16 @@ export class CadCanvas extends HTMLElement {
     this.invalidate()
   }
 
-  #commit(entity: Entity): void {
-    this.#document = addEntity(this.#document, entity)
+  #applyCommit(commit: ToolCommit): void {
+    this.#document =
+      commit.kind === 'add'
+        ? addEntity(this.#document, commit.entity)
+        : updateEntity(this.#document, commit.entity.id, commit.entity)
     this.dispatchEvent(
       new CustomEvent('cad-canvas:commit', {
         bubbles: true,
         composed: true,
-        detail: { entity, document: this.#document },
+        detail: { entity: commit.entity, document: this.#document },
       })
     )
   }

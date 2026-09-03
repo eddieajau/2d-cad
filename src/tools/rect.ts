@@ -51,7 +51,7 @@ export class RectTool implements Tool<RectToolState> {
     const rect = makeRect(state.anchor, world)
     // Zero-width or zero-height drags are degenerate — drop them.
     if (rect.w === 0 || rect.h === 0) return { state: next }
-    return { state: next, commit: rect }
+    return { state: next, commit: { kind: 'add', entity: rect } }
   }
 
   onKey(state: RectToolState, ev: KeyboardEvent): RectToolState {

@@ -50,7 +50,7 @@ export class CircleTool implements Tool<CircleToolState> {
     const circle = makeCircle(state.anchor, world)
     // A click without drag has zero radius — drop it.
     if (circle.r === 0) return { state: next }
-    return { state: next, commit: circle }
+    return { state: next, commit: { kind: 'add', entity: circle } }
   }
 
   onKey(state: CircleToolState, ev: KeyboardEvent): CircleToolState {

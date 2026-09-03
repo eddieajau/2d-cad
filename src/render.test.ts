@@ -154,4 +154,30 @@ describe('renderScene', () => {
     renderScene(ctx, docWith(line), viewport, { ...options, selectedId: 'missing' })
     expect(calls.some(c => c.method === 'set:strokeStyle' && c.args[0] === options.theme.selection)).toBe(false)
   })
+
+  it('draws a dragged selection at the preview offset, not its committed position', () => {
+    const { ctx, calls } = createCtxStub()
+    const moved = { ...line, x1: 20, y1: 10, x2: 60, y2: 30 }
+    renderScene(ctx, docWith(line), viewport, { ...options, selectedId: line.id, preview: moved })
+
+    // Selection style at the dragged position…
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.selection] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [60, 270] })
+    // …committed geometry is skipped, and no dashed ghost is drawn.
+    expect(calls).not.toContainEqual({ method: 'lineTo', args: [50, 270] })
+    expect(calls.some(c => c.method === 'setLineDash')).toBe(false)
+  })
+
+  it('draws a copy drag as the highlighted original plus a dashed clone ghost', () => {
+    const { ctx, calls } = createCtxStub()
+    const ghost = { ...line, id: 'ghost', x1: 20, y1: 10, x2: 60, y2: 30 }
+    renderScene(ctx, docWith(line), viewport, { ...options, selectedId: line.id, preview: ghost })
+
+    // Original keeps the selection style at its committed position…
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.selection] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [50, 270] })
+    // …and the clone is previewed dashed at the dragged position.
+    expect(calls).toContainEqual({ method: 'setLineDash', args: [[9, 3]] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [60, 270] })
+  })
 })

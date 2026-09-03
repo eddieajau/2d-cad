@@ -3,7 +3,7 @@
  * @license   MIT
  */
 
-import type { DrawingDocument, Entity } from '../document.js'
+import type { DrawingDocument, Entity, EntityId } from '../document.js'
 import type { Viewport, WorldPoint } from '../viewport.js'
 
 export type ToolId = 'select' | 'line' | 'rect' | 'circle'
@@ -19,10 +19,21 @@ export interface ToolState {
   readonly preview?: Entity
 }
 
+/**
+ * A single document operation handed back on gesture completion. `add`
+ * creates a new entity; `update` replaces the entity with the same id.
+ * Keeping commits as discrete ops lets undo (ticket 8) wrap each one.
+ */
+export type ToolCommit =
+  | { readonly kind: 'add'; readonly entity: Entity }
+  | { readonly kind: 'update'; readonly entity: Entity }
+
 export interface ToolPointerResult<S extends ToolState> {
   state: S
-  /** Entity to add to the document, if the gesture completed. */
-  commit?: Entity
+  /** Document operation to apply, if the gesture completed. */
+  commit?: ToolCommit
+  /** Entity to make the active selection after applying the commit (copies). */
+  select?: EntityId
 }
 
 /**

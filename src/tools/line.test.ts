@@ -34,12 +34,15 @@ describe('LineTool', () => {
     const result = tool.onPointerUp(ctx, state, { x: 4, y: 6 }, up)
 
     expect(result.commit).toEqual({
-      id: expect.any(String),
-      type: 'line',
-      x1: 1,
-      y1: 2,
-      x2: 4,
-      y2: 6,
+      kind: 'add',
+      entity: {
+        id: expect.any(String),
+        type: 'line',
+        x1: 1,
+        y1: 2,
+        x2: 4,
+        y2: 6,
+      },
     })
     expect(result.state).toEqual({})
   })

@@ -43,7 +43,7 @@ export class LineTool implements Tool<LineToolState> {
     if (!state.anchor) return { state: next }
     // A click without drag would be a degenerate zero-length line — drop it.
     if (world.x === state.anchor.x && world.y === state.anchor.y) return { state: next }
-    return { state: next, commit: makeLine(state.anchor, world) }
+    return { state: next, commit: { kind: 'add', entity: makeLine(state.anchor, world) } }
   }
 
   onKey(state: LineToolState, ev: KeyboardEvent): LineToolState {

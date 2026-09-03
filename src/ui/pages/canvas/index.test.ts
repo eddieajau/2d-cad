@@ -302,7 +302,9 @@ describe('cad-canvas', () => {
       const deletes: CustomEvent[] = []
       el.addEventListener('cad-canvas:delete', event => deletes.push(event as CustomEvent))
 
+      // Complete the click before escaping, so no drag is in progress.
       pointer(el, 'pointerdown', 20, 0)
+      pointer(el, 'pointerup', 20, 0)
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 
       expect(el.getSelection()).toBeNull()
@@ -331,12 +333,84 @@ describe('cad-canvas', () => {
       const commits: CustomEvent[] = []
       el.addEventListener('cad-canvas:commit', event => commits.push(event as CustomEvent))
 
-      pointer(el, 'pointerdown', 5, 5)
-      pointer(el, 'pointermove', 20, 20)
-      pointer(el, 'pointerup', 20, 20)
+      // Outside the 8px hit tolerance of the test line.
+      pointer(el, 'pointerdown', 5, 50)
+      pointer(el, 'pointermove', 20, 70)
+      pointer(el, 'pointerup', 20, 70)
 
       expect(el.getDocument().entities).toHaveLength(1)
       expect(commits).toHaveLength(0)
+
+      el.remove()
+    })
+  })
+
+  describe('move + copy', () => {
+    /** Canvas with a single horizontal line through world (0,0)–(40,0). */
+    function makeMoveScene(): CadCanvas {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setDocument(addEntity(createDocument(), { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }))
+      el.setTool('select')
+      return el
+    }
+
+    it('a drag moves the entity in the document under the same id', async () => {
+      const el = makeMoveScene()
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+
+      pointer(el, 'pointerdown', 20, 0)
+      pointer(el, 'pointermove', 30, 10)
+
+      // During the drag the document is unchanged; only the preview differs.
+      expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }])
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      const lastCall = renderSceneMock.mock.calls.at(-1)!
+      expect(lastCall[3].preview).toEqual({ id: 'e1', type: 'line', x1: 10, y1: -10, x2: 50, y2: -10 })
+      expect(lastCall[3].selectedId).toBe('e1')
+
+      pointer(el, 'pointerup', 30, 10)
+
+      expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 10, y1: -10, x2: 50, y2: -10 }])
+      expect(el.getSelection()).toBe('e1')
+
+      el.remove()
+    })
+
+    it('an alt-drag duplicates the entity and selects the clone', () => {
+      const el = makeMoveScene()
+
+      pointer(el, 'pointerdown', 20, 0)
+      pointer(el, 'pointermove', 30, 10)
+      // Alt held at drop time copies.
+      el.querySelector('canvas')!.dispatchEvent(
+        new PointerEvent('pointerup', { clientX: 30, clientY: 10, altKey: true, bubbles: true })
+      )
+
+      const doc = el.getDocument()
+      expect(doc.entities).toHaveLength(2)
+      expect(doc.entities[0]).toEqual({ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 })
+      const clone = doc.entities[1]!
+      expect(clone).toMatchObject({ type: 'line', x1: 10, y1: -10, x2: 50, y2: -10 })
+      expect(clone.id).not.toBe('e1')
+      expect(el.getSelection()).toBe(clone.id)
+
+      el.remove()
+    })
+
+    it('Escape mid-drag cancels back to the pre-drag state', () => {
+      const el = makeMoveScene()
+
+      pointer(el, 'pointerdown', 20, 0)
+      pointer(el, 'pointermove', 30, 10)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      pointer(el, 'pointerup', 30, 10)
+
+      expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }])
+      // Pre-drag state had the entity selected — that survives the cancel.
+      expect(el.getSelection()).toBe('e1')
 
       el.remove()
     })

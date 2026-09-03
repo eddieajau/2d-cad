@@ -74,6 +74,18 @@ export function updateEntity(
   }
 }
 
+/** A copy of `entity` translated by (dx, dy); the input is never mutated. */
+export function translateEntity(entity: Entity, dx: number, dy: number): Entity {
+  switch (entity.type) {
+    case 'line':
+      return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy }
+    case 'circle':
+      return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy }
+    case 'rect':
+      return { ...entity, x: entity.x + dx, y: entity.y + dy }
+  }
+}
+
 export function removeEntity(doc: DrawingDocument, id: EntityId): DrawingDocument {
   return { entities: doc.entities.filter(entity => entity.id !== id) }
 }

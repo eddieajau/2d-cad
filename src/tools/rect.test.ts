@@ -29,7 +29,10 @@ describe('RectTool', () => {
     expect(state.preview).toMatchObject({ type: 'rect', x: 1, y: 2, w: 4, h: 3 })
 
     const result = tool.onPointerUp(ctx, state, { x: 1, y: 2 }, up)
-    expect(result.commit).toEqual({ id: expect.any(String), type: 'rect', x: 1, y: 2, w: 4, h: 3 })
+    expect(result.commit).toEqual({
+      kind: 'add',
+      entity: { id: expect.any(String), type: 'rect', x: 1, y: 2, w: 4, h: 3 },
+    })
     expect(result.state).toEqual({})
   })
 
