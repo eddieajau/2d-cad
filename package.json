@@ -11,7 +11,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "vitest run --reporter=dot",
+    "test": "NODE_OPTIONS=--localstorage-file=.local/test-localstorage vitest run --reporter=dot",
     "build": "esbuild src/main.ts --bundle --format=esm --outfile=www/js/main.js --tsconfig=tsconfig.json",
     "dev": "concurrently -n serve,browser -c cyan,magenta \"npm:dev:serve\" \"npm:dev:browser\"",
     "dev:serve": "serve www -l 5173 --no-clipboard",

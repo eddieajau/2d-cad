@@ -3,11 +3,34 @@
  * @license   MIT
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CadCanvas } from '../pages/canvas/index.js'
 import type { ToolPalette } from './tool-palette.js'
 import './app-shell.js'
+
+beforeEach(() => {
+  localStorage.clear()
+})
+
+afterEach(() => {
+  localStorage.clear()
+})
+
+function makeShell(): { shell: HTMLElement; canvas: CadCanvas } {
+  const shell = document.createElement('app-shell')
+  document.body.appendChild(shell)
+  const canvas = shell.querySelector('cad-canvas')!
+  const inner = canvas.querySelector('canvas')!
+  inner.setPointerCapture = () => {}
+  inner.releasePointerCapture = () => {}
+  canvas.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+  return { shell, canvas }
+}
+
+function pointer(canvas: CadCanvas, type: string, clientX: number, clientY: number): void {
+  canvas.querySelector('canvas')!.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true }))
+}
 
 describe('app-shell', () => {
   it('renders the brand, the tool palette, and the canvas page', () => {
@@ -83,21 +106,6 @@ describe('app-shell', () => {
   })
 
   describe('undo/redo', () => {
-    function makeShell(): { shell: HTMLElement; canvas: CadCanvas } {
-      const shell = document.createElement('app-shell')
-      document.body.appendChild(shell)
-      const canvas = shell.querySelector('cad-canvas')!
-      const inner = canvas.querySelector('canvas')!
-      inner.setPointerCapture = () => {}
-      inner.releasePointerCapture = () => {}
-      canvas.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
-      return { shell, canvas }
-    }
-
-    function pointer(canvas: CadCanvas, type: string, clientX: number, clientY: number): void {
-      canvas.querySelector('canvas')!.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true }))
-    }
-
     function shortcut(key: string, modifiers: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }): void {
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...modifiers }))
     }
@@ -194,6 +202,104 @@ describe('app-shell', () => {
 
       input.remove()
       shell.remove()
+    })
+  })
+
+  describe('actions', () => {
+    it('emits app-shell:action from the New/Open/Save buttons', () => {
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+      const { shell } = makeShell()
+
+      const actions: string[] = []
+      shell.addEventListener('app-shell:action', event => {
+        actions.push((event as CustomEvent<string>).detail)
+      })
+      for (const action of ['new', 'open', 'save']) {
+        shell.querySelector<HTMLButtonElement>(`button[data-action="${action}"]`)!.click()
+      }
+
+      expect(actions).toEqual(['new', 'open', 'save'])
+
+      click.mockRestore()
+      shell.remove()
+    })
+
+    it('restores the autosaved document on connect', () => {
+      localStorage.setItem(
+        '2d-cad:v1',
+        JSON.stringify({ entities: [{ id: 'e1', type: 'circle', cx: 10, cy: 5, r: 3 }] })
+      )
+
+      const { shell, canvas } = makeShell()
+
+      expect(canvas.getDocument().entities).toHaveLength(1)
+      expect(canvas.getDocument().entities[0]?.type).toBe('circle')
+
+      shell.remove()
+    })
+
+    it('Save downloads the current document', () => {
+      const createElement = vi.spyOn(document, 'createElement')
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+      const { shell, canvas } = makeShell()
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 40, 0)
+
+      shell.querySelector<HTMLButtonElement>('button[data-action="save"]')!.click()
+
+      const index = createElement.mock.calls.findIndex(([tag]) => tag === 'a')
+      const anchor = createElement.mock.results[index]!.value as HTMLAnchorElement
+      expect(anchor.download).toMatch(/^drawing-\d{8}\.json$/)
+
+      createElement.mockRestore()
+      click.mockRestore()
+      shell.remove()
+    })
+
+    it('New resets the document without prompting when everything is saved', () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        const { shell, canvas } = makeShell()
+        pointer(canvas, 'pointerdown', 0, 0)
+        pointer(canvas, 'pointerup', 40, 0)
+        // Flush the debounced autosave so nothing is pending.
+        vi.advanceTimersByTime(1000)
+        expect(canvas.getDocument().entities).toHaveLength(1)
+
+        shell.querySelector<HTMLButtonElement>('button[data-action="new"]')!.click()
+
+        expect(canvas.getDocument().entities).toHaveLength(0)
+        expect(confirmSpy).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+      }
+    })
+  })
+
+  describe('autosave', () => {
+    it('debounces saveLocal after a commit', () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        const { shell, canvas } = makeShell()
+
+        pointer(canvas, 'pointerdown', 0, 0)
+        pointer(canvas, 'pointerup', 40, 0)
+        expect(localStorage.getItem('2d-cad:v1')).toBeNull()
+
+        vi.advanceTimersByTime(999)
+        expect(localStorage.getItem('2d-cad:v1')).toBeNull()
+
+        vi.advanceTimersByTime(1)
+        const stored = localStorage.getItem('2d-cad:v1')
+        expect(stored).not.toBeNull()
+        expect(JSON.parse(stored!).entities).toHaveLength(1)
+
+        shell.remove()
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })
