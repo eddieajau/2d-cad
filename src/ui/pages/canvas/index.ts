@@ -130,6 +130,10 @@ export class CadCanvas extends HTMLElement {
   /** Parent pushes the document down; never pull it from here. */
   setDocument(doc: DrawingDocument): void {
     this.#document = doc
+    // A history walk can remove the selected entity — drop a stale selection.
+    if (this.#selectedId !== null && getEntity(doc, this.#selectedId) === undefined) {
+      this.#setSelection(null)
+    }
     this.invalidate()
   }
 
