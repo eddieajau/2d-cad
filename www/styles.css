@@ -8,6 +8,11 @@
   --accent: #b45309;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --radius: 6px;
+  /* Canvas ink/grid pair. Grid lines meet ≥ 3:1 against --surface,
+     grid labels (grid-major) ≥ 4.5:1; ink ≥ 4.5:1. */
+  --canvas-grid-minor: #8a93a3;
+  --canvas-grid-major: #66707f;
+  --canvas-ink: #1f2430;
 }
 
 :root[data-theme='dark'] {
@@ -18,6 +23,9 @@
   --text: #eef1f6;
   --muted: #98a2b3;
   --accent: #f59e0b;
+  --canvas-grid-minor: #5d6a86;
+  --canvas-grid-major: #98a2b3;
+  --canvas-ink: #eef1f6;
 }
 
 * {

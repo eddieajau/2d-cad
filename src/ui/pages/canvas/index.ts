@@ -3,6 +3,8 @@
  * @license   MIT
  */
 
+import { createDocument, type DrawingDocument } from '../../../document.js'
+import { renderScene } from '../../../render.js'
 import { panBy, screenToWorld, zoomAt, type Viewport } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
@@ -11,12 +13,21 @@ export interface CadCanvasEventMap {
 
 const MAX_DEVICE_PIXEL_RATIO = 2
 
+const DEFAULT_THEME = {
+  gridMinor: '#8a93a3',
+  gridMajor: '#66707f',
+  ink: '#1f2430',
+}
+
 export class CadCanvas extends HTMLElement {
   #viewport: Viewport = { offsetX: 0, offsetY: 0, scale: 1 }
   #centred = false
   #canvas: HTMLCanvasElement | null = null
   #abort: AbortController | null = null
   #resizeObserver: ResizeObserver | null = null
+  #document: DrawingDocument = createDocument()
+  #dirty = false
+  #rafId = 0
 
   constructor() {
     super()
@@ -29,6 +40,8 @@ export class CadCanvas extends HTMLElement {
     this.render()
     this.setupEventListeners()
     this.syncCanvasSize()
+    this.#startLoop()
+    this.invalidate()
   }
 
   disconnectedCallback(): void {
@@ -62,6 +75,53 @@ export class CadCanvas extends HTMLElement {
     this.#abort = null
     this.#resizeObserver?.disconnect()
     this.#resizeObserver = null
+    cancelAnimationFrame(this.#rafId)
+  }
+
+  #startLoop(): void {
+    cancelAnimationFrame(this.#rafId)
+    this.#rafId = requestAnimationFrame(this.#tick)
+  }
+
+  #tick = (): void => {
+    if (this.#dirty) {
+      this.#dirty = false
+      this.#draw()
+    }
+    this.#rafId = requestAnimationFrame(this.#tick)
+  }
+
+  /** Mark the scene for redraw on the next animation frame. */
+  invalidate(): void {
+    this.#dirty = true
+  }
+
+  /** Parent pushes the document down; never pull it from here. */
+  setDocument(doc: DrawingDocument): void {
+    this.#document = doc
+    this.invalidate()
+  }
+
+  getDocument(): DrawingDocument {
+    return this.#document
+  }
+
+  #draw(): void {
+    const canvas = this.#canvas
+    if (canvas === null) return
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return
+    const style = getComputedStyle(this)
+    const cssVar = (name: string, fallback: string): string => style.getPropertyValue(name).trim() || fallback
+    renderScene(ctx, this.#document, this.#viewport, {
+      width: this.clientWidth,
+      height: this.clientHeight,
+      theme: {
+        gridMinor: cssVar('--canvas-grid-minor', DEFAULT_THEME.gridMinor),
+        gridMajor: cssVar('--canvas-grid-major', DEFAULT_THEME.gridMajor),
+        ink: cssVar('--canvas-ink', DEFAULT_THEME.ink),
+      },
+    })
   }
 
   /** Recompute the backing store size from the host's client size. */
@@ -72,6 +132,7 @@ export class CadCanvas extends HTMLElement {
     canvas.width = Math.round(this.clientWidth * dpr)
     canvas.height = Math.round(this.clientHeight * dpr)
     canvas.getContext('2d')?.setTransform(dpr, 0, 0, dpr, 0, 0)
+    this.invalidate()
     if (!this.#centred && this.clientWidth > 0 && this.clientHeight > 0) {
       // Centre the world origin on first sight; pan/zoom then takes over.
       this.#viewport = panBy(this.#viewport, this.clientWidth / 2, this.clientHeight / 2)
@@ -85,6 +146,7 @@ export class CadCanvas extends HTMLElement {
 
   setViewport(viewport: Viewport): void {
     this.#viewport = viewport
+    this.invalidate()
   }
 
   #onPointer = (event: PointerEvent): void => {
@@ -113,6 +175,7 @@ export class CadCanvas extends HTMLElement {
     const rect = canvas.getBoundingClientRect()
     const factor = Math.exp(-event.deltaY * 0.0015)
     this.#viewport = zoomAt(this.#viewport, factor, event.clientX - rect.left, event.clientY - rect.top)
+    this.invalidate()
   }
 }
 

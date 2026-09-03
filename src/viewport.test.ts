@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { panBy, screenToWorld, worldToScreen, zoomAt, type Viewport } from './viewport.js'
+import { panBy, screenToWorld, visibleWorldRect, worldToScreen, zoomAt, type Viewport } from './viewport.js'
 
 const viewport: Viewport = { offsetX: 100, offsetY: 200, scale: 2 }
 
@@ -55,5 +55,15 @@ describe('panBy', () => {
   it('shifts offsets and keeps scale', () => {
     const panned = panBy(viewport, -30, 5)
     expect(panned).toEqual({ offsetX: 70, offsetY: 205, scale: 2 })
+  })
+})
+
+describe('visibleWorldRect', () => {
+  it('returns the visible world bounds for a screen size', () => {
+    const rect = visibleWorldRect(viewport, 400, 300)
+    expect(rect.minX).toBeCloseTo(-50)
+    expect(rect.minY).toBeCloseTo(-50)
+    expect(rect.maxX).toBeCloseTo(150)
+    expect(rect.maxY).toBeCloseTo(100)
   })
 })

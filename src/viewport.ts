@@ -31,6 +31,25 @@ export function worldToScreen(v: Viewport, x: number, y: number): ScreenPoint {
   return { sx: x * v.scale + v.offsetX, sy: -y * v.scale + v.offsetY }
 }
 
+export interface WorldRect {
+  readonly minX: number
+  readonly minY: number
+  readonly maxX: number
+  readonly maxY: number
+}
+
+/** The world-space rect currently visible on a `width` × `height` screen. */
+export function visibleWorldRect(v: Viewport, width: number, height: number): WorldRect {
+  const bottomLeft = screenToWorld(v, 0, height)
+  const topRight = screenToWorld(v, width, 0)
+  return {
+    minX: bottomLeft.x,
+    minY: bottomLeft.y,
+    maxX: topRight.x,
+    maxY: topRight.y,
+  }
+}
+
 /** Zoom keeping the world point under the given screen position fixed. */
 export function zoomAt(v: Viewport, factor: number, sx: number, sy: number): Viewport {
   const scale = v.scale * factor

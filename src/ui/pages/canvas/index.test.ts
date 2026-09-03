@@ -3,10 +3,18 @@
  * @license   MIT
  */
 
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { createDocument, addEntity } from '../../../document.js'
 import './index.js'
 import { CadCanvas } from './index.js'
+
+const { renderSceneMock } = vi.hoisted(() => ({ renderSceneMock: vi.fn() }))
+vi.mock('../../../render.js', () => ({ renderScene: renderSceneMock }))
+
+beforeEach(() => {
+  renderSceneMock.mockClear()
+})
 
 function makeCanvas(): CadCanvas {
   const el = document.createElement('cad-canvas')
@@ -85,5 +93,34 @@ describe('cad-canvas', () => {
     el.addEventListener('cad-canvas:pointer', event => events.push(event as CustomEvent))
     el.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 0, bubbles: true }))
     expect(events).toHaveLength(0)
+  })
+
+  it('draws once per invalidation and idles when clean', async () => {
+    const el = makeCanvas()
+    // happy-dom's 2D context is null; the mocked renderer doesn't need one.
+    const canvas = el.querySelector('canvas')!
+    canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+    const doc = addEntity(createDocument(), {
+      id: 'e1',
+      type: 'line',
+      x1: 0,
+      y1: 0,
+      x2: 10,
+      y2: 10,
+    })
+
+    el.setDocument(doc)
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    expect(renderSceneMock).toHaveBeenCalledTimes(1)
+
+    // No state change → no further draws.
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    expect(renderSceneMock).toHaveBeenCalledTimes(1)
+
+    el.setViewport({ offsetX: 0, offsetY: 0, scale: 2 })
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    expect(renderSceneMock).toHaveBeenCalledTimes(2)
+
+    el.remove()
   })
 })
