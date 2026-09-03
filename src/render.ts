@@ -5,7 +5,7 @@
 
 import type {
   DrawingDocument,
-  Entity,
+  EntityDraft,
   EntityId,
   LineEntity,
   CircleEntity,
@@ -30,7 +30,7 @@ export interface RenderOptions {
   readonly height: number
   readonly theme: RenderTheme
   /** In-progress tool geometry, drawn dashed on top of the scene. */
-  readonly preview?: Entity
+  readonly preview?: EntityDraft
   /** Entity to redraw with the selection style, if present in the document. */
   readonly selectedId?: EntityId | null
 }
@@ -76,7 +76,14 @@ export function formatLength(length: number): string {
   return `${formatCoord(length / 1000)} m`
 }
 
-function lineBounds(e: LineEntity): WorldRect {
+/** Entity shapes without their layer reference — previews are layerless. */
+type LineGeometry = Omit<LineEntity, 'layerId'>
+type CircleGeometry = Omit<CircleEntity, 'layerId'>
+type RectGeometry = Omit<RectEntity, 'layerId'>
+type TextGeometry = Omit<TextEntity, 'layerId'>
+type DimGeometry = Omit<DimEntity, 'layerId'>
+
+function lineBounds(e: LineGeometry): WorldRect {
   return {
     minX: Math.min(e.x1, e.x2),
     minY: Math.min(e.y1, e.y2),
@@ -85,11 +92,11 @@ function lineBounds(e: LineEntity): WorldRect {
   }
 }
 
-function circleBounds(e: CircleEntity): WorldRect {
+function circleBounds(e: CircleGeometry): WorldRect {
   return { minX: e.cx - e.r, minY: e.cy - e.r, maxX: e.cx + e.r, maxY: e.cy + e.r }
 }
 
-function rectBounds(e: RectEntity): WorldRect {
+function rectBounds(e: RectGeometry): WorldRect {
   return {
     minX: Math.min(e.x, e.x + e.w),
     minY: Math.min(e.y, e.y + e.h),
@@ -98,7 +105,7 @@ function rectBounds(e: RectEntity): WorldRect {
   }
 }
 
-function dimBounds(e: DimEntity): WorldRect {
+function dimBounds(e: DimGeometry): WorldRect {
   const { a, b } = dimLine(e)
   return {
     minX: Math.min(e.x1, e.x2, a.x, b.x),
@@ -108,7 +115,7 @@ function dimBounds(e: DimEntity): WorldRect {
   }
 }
 
-export function entityBounds(entity: Entity): WorldRect {
+export function entityBounds(entity: EntityDraft): WorldRect {
   switch (entity.type) {
     case 'line':
       return lineBounds(entity)
@@ -123,7 +130,7 @@ export function entityBounds(entity: Entity): WorldRect {
   }
 }
 
-function drawEntity(ctx: CanvasRenderingContext2D, entity: Entity, v: Viewport): void {
+function drawEntity(ctx: CanvasRenderingContext2D, entity: EntityDraft, v: Viewport): void {
   switch (entity.type) {
     case 'line':
       drawLine(ctx, entity, v)
@@ -147,7 +154,7 @@ function intersects(a: WorldRect, b: WorldRect): boolean {
   return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY
 }
 
-export function drawLine(ctx: CanvasRenderingContext2D, e: LineEntity, v: Viewport): void {
+export function drawLine(ctx: CanvasRenderingContext2D, e: LineGeometry, v: Viewport): void {
   const a = worldToScreen(v, e.x1, e.y1)
   const b = worldToScreen(v, e.x2, e.y2)
   ctx.beginPath()
@@ -156,14 +163,14 @@ export function drawLine(ctx: CanvasRenderingContext2D, e: LineEntity, v: Viewpo
   ctx.stroke()
 }
 
-export function drawCircle(ctx: CanvasRenderingContext2D, e: CircleEntity, v: Viewport): void {
+export function drawCircle(ctx: CanvasRenderingContext2D, e: CircleGeometry, v: Viewport): void {
   const c = worldToScreen(v, e.cx, e.cy)
   ctx.beginPath()
   ctx.arc(c.sx, c.sy, e.r * v.scale, 0, 2 * Math.PI)
   ctx.stroke()
 }
 
-export function drawRect(ctx: CanvasRenderingContext2D, e: RectEntity, v: Viewport): void {
+export function drawRect(ctx: CanvasRenderingContext2D, e: RectGeometry, v: Viewport): void {
   const origin = worldToScreen(v, e.x, e.y + e.h)
   ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
 }
@@ -173,7 +180,7 @@ export function drawRect(ctx: CanvasRenderingContext2D, e: RectEntity, v: Viewpo
  * the on-screen font size is `size * scale` — the text scales with zoom,
  * keeping a constant footprint in world space.
  */
-export function drawText(ctx: CanvasRenderingContext2D, e: TextEntity, v: Viewport): void {
+export function drawText(ctx: CanvasRenderingContext2D, e: TextGeometry, v: Viewport): void {
   const anchor = worldToScreen(v, e.x, e.y)
   ctx.font = `${e.size * v.scale}px sans-serif`
   ctx.textBaseline = 'alphabetic'
@@ -202,7 +209,7 @@ function drawArrow(ctx: CanvasRenderingContext2D, tip: WorldPoint, dir: WorldPoi
  * the dimension reads the same at any zoom; the label carries the measured
  * world length.
  */
-export function drawDim(ctx: CanvasRenderingContext2D, e: DimEntity, v: Viewport): void {
+export function drawDim(ctx: CanvasRenderingContext2D, e: DimGeometry, v: Viewport): void {
   const { a, b } = dimLine(e)
   const da = worldToScreen(v, a.x, a.y)
   const db = worldToScreen(v, b.x, b.y)
@@ -346,6 +353,8 @@ export function renderScene(
 
   const visible = visibleWorldRect(v, opts.width, opts.height)
   const preview = opts.preview
+  // Layer visibility is enforced here at draw time, not in the model.
+  const hidden = new Set(doc.layers.filter(layer => !layer.visible).map(layer => layer.id))
   // A move-drag's preview carries the selected entity's own id: the entity
   // is drawn at its dragged position with the selection style and its
   // committed geometry is skipped. A copy-drag previews a clone (different
@@ -357,13 +366,14 @@ export function renderScene(
   ctx.fillStyle = opts.theme.ink
   ctx.lineWidth = 1
   for (const entity of doc.entities) {
+    if (hidden.has(entity.layerId)) continue
     if (preview !== undefined && entity.id === preview.id) continue
     if (!intersects(entityBounds(entity), visible)) continue
     drawEntity(ctx, entity, v)
   }
 
   const selected = opts.selectedId ? doc.entities.find(entity => entity.id === opts.selectedId) : undefined
-  if (selected) {
+  if (selected && !hidden.has(selected.layerId)) {
     const highlight = draggingSelection && preview ? preview : selected
     if (intersects(entityBounds(highlight), visible)) {
       ctx.save()

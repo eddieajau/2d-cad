@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { createDocument, type Entity } from './document.js'
+import { addEntity, addLayer, createDocument, updateLayer, type DrawingDocument, type EntityDraft } from './document.js'
 import {
   distanceToCircle,
   distanceToDim,
@@ -16,6 +16,12 @@ import {
 } from './hit-test.js'
 
 const p = (x: number, y: number) => ({ x, y })
+
+function docWith(...drafts: EntityDraft[]): DrawingDocument {
+  let doc = createDocument()
+  for (const draft of drafts) doc = addEntity(doc, draft)
+  return doc
+}
 
 describe('distanceToLineSegment', () => {
   it('measures the perpendicular distance within the segment', () => {
@@ -99,12 +105,11 @@ describe('distanceToDim', () => {
 })
 
 describe('hitTest', () => {
-  const entities: Entity[] = [
+  const doc = docWith(
     { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
     { id: 'e2', type: 'line', x1: 0, y1: 4, x2: 10, y2: 4 },
-    { id: 'e3', type: 'circle', cx: 20, cy: 0, r: 5 },
-  ]
-  const doc = { entities }
+    { id: 'e3', type: 'circle', cx: 20, cy: 0, r: 5 }
+  )
 
   it('returns null on a miss beyond the tolerance', () => {
     expect(hitTest(doc, p(5, 2.5), 1)).toBeNull()
@@ -128,15 +133,28 @@ describe('hitTest', () => {
   })
 
   it('hits text and dim entities through the document', () => {
-    const annotated = {
-      entities: [
-        ...entities,
-        { id: 'e4', type: 'text', x: 30, y: 10, text: 'ab', size: 5 },
-        { id: 'e5', type: 'dim', x1: 0, y1: -10, x2: 10, y2: -10, offset: 2 },
-      ] satisfies Entity[],
-    }
+    const annotated = docWith(
+      { id: 'e4', type: 'text', x: 30, y: 10, text: 'ab', size: 5 },
+      { id: 'e5', type: 'dim', x1: 0, y1: -10, x2: 10, y2: -10, offset: 2 }
+    )
     expect(hitTest(annotated, p(32, 12), 1)?.id).toBe('e4')
     // The dimension line sits at y = -8 (offset +2 from y = -10).
     expect(hitTest(annotated, p(5, -8), 0.5)?.id).toBe('e5')
+  })
+
+  it('skips entities on invisible layers', () => {
+    let hidden = addLayer(createDocument(), 'Hidden')
+    const hiddenId = hidden.layers[1]!.id
+    hidden = addEntity(hidden, { id: 'h1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0, layerId: hiddenId })
+    hidden = updateLayer(hidden, hiddenId, { visible: false })
+    expect(hitTest(hidden, p(5, 0), 1)).toBeNull()
+  })
+
+  it('skips entities on locked layers', () => {
+    let locked = addLayer(createDocument(), 'Locked')
+    const lockedId = locked.layers[1]!.id
+    locked = addEntity(locked, { id: 'k1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0, layerId: lockedId })
+    locked = updateLayer(locked, lockedId, { locked: true })
+    expect(hitTest(locked, p(5, 0), 1)).toBeNull()
   })
 })

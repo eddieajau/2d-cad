@@ -4,12 +4,23 @@
  */
 
 import '../pages/canvas/index.js'
-import { createDocument, DocumentParseError, type DrawingDocument, type EntityId } from '../../document.js'
+import {
+  addLayer,
+  createDocument,
+  DocumentParseError,
+  removeLayer,
+  setActiveLayer,
+  updateLayer,
+  type DrawingDocument,
+  type EntityId,
+} from '../../document.js'
 import { canRedo, canUndo, commit, createHistory, current, redo, undo, type History } from '../../history.js'
 import { downloadDocument, loadLocal, openDocument, saveLocal } from '../../persistence.js'
 import type { SnapMode } from '../../snap.js'
 import type { ToolId } from '../../tools/types.js'
 import type { WorldPoint } from '../../viewport.js'
+import './layer-panel.js'
+import type { LayerPanelChange } from './layer-panel.js'
 import './status-bar.js'
 import './tool-palette.js'
 
@@ -27,7 +38,9 @@ const AUTOSAVE_DELAY_MS = 1000
  * shell also owns the snapshot history: every commit/delete event the canvas
  * emits is appended, and ctrl/cmd+z (shift+z, ctrl/cmd+y) walk it. Pointer,
  * snap, and selection events are pushed down into the status bar readout.
- * The shell is also the persistence boundary: document changes autosave to
+ * Layer-panel ops map onto the model's layer functions through the same
+ * history commit, so layer changes are undoable like any edit. The shell is
+ * also the persistence boundary: document changes autosave to
  * localStorage (debounced), and the New/Open/Save actions row round-trips
  * documents through files. Elements stay persistence-free.
  */
@@ -52,9 +65,11 @@ export class AppShell extends HTMLElement {
       }
     }
     this.setupEventListeners()
-    // Seed the status bar with the canvas's current snap mode.
+    // Seed the status bar with the canvas's current snap mode, and the
+    // layer panel with the restored document's layer table.
     const bar = this.querySelector('status-bar')
     if (canvas && bar) bar.setSnap(canvas.getSnapMode())
+    this.#syncLayerPanel()
   }
 
   disconnectedCallback(): void {
@@ -72,7 +87,10 @@ export class AppShell extends HTMLElement {
           <input class="file-input" type="file" accept="application/json,.json" hidden />
         </div>
       </header>
-      <tool-palette tools="select,line,rect,circle,text,dim" active="line"></tool-palette>
+      <div class="tool-strip">
+        <tool-palette tools="select,line,rect,circle,text,dim" active="line"></tool-palette>
+        <layer-panel></layer-panel>
+      </div>
       <main class="app-main">
         <cad-canvas></cad-canvas>
       </main>
@@ -89,8 +107,10 @@ export class AppShell extends HTMLElement {
     this.addEventListener('app-shell:action', this.#onAction, opts)
     this.querySelector<HTMLInputElement>('.file-input')?.addEventListener('change', this.#onFileChange, opts)
     this.addEventListener('tool-palette:select', this.#onToolSelect, opts)
+    this.addEventListener('layer-panel:change', this.#onLayerChange, opts)
     this.addEventListener('cad-canvas:commit', this.#onDocChange, opts)
     this.addEventListener('cad-canvas:delete', this.#onDocChange, opts)
+    this.addEventListener('cad-canvas:blocked', this.#onBlocked, opts)
     this.addEventListener('cad-canvas:pointer', this.#onPointerReadout, opts)
     this.addEventListener('cad-canvas:snap', this.#onSnapChange, opts)
     this.addEventListener('cad-canvas:selection', this.#onSelectionChange, opts)
@@ -145,6 +165,7 @@ export class AppShell extends HTMLElement {
     this.#history = createHistory(doc)
     canvas.setDocument(doc)
     this.#persistNow(doc)
+    this.#syncLayerPanel()
   }
 
   #onFileChange = async (event: Event): Promise<void> => {
@@ -157,6 +178,7 @@ export class AppShell extends HTMLElement {
       this.#history = createHistory(doc)
       this.querySelector('cad-canvas')?.setDocument(doc)
       this.#persistNow(doc)
+      this.#syncLayerPanel()
     } catch (error) {
       const reason = error instanceof DocumentParseError ? error.message : 'the file could not be read'
       window.alert(`Could not open "${file.name}": ${reason}`)
@@ -198,10 +220,62 @@ export class AppShell extends HTMLElement {
     this.querySelector('tool-palette')?.setAttribute('active', tool)
   }
 
+  /** Push the history head's layer table down into the panel. */
+  #syncLayerPanel(): void {
+    const doc = current(this.#history)
+    this.querySelector('layer-panel')?.setLayers(doc.layers, doc.activeLayerId)
+  }
+
+  /**
+   * Map a panel op onto the model's layer functions and commit it through
+   * the history like any other edit — layer changes are undoable.
+   */
+  #onLayerChange = (event: Event): void => {
+    const { op, layerId, value } = (event as CustomEvent<LayerPanelChange>).detail
+    const canvas = this.querySelector('cad-canvas')
+    const doc = canvas?.getDocument()
+    if (canvas === null || canvas === undefined || doc === undefined) return
+
+    let next: DrawingDocument
+    switch (op) {
+      case 'add':
+        next = addLayer(doc, typeof value === 'string' && value.trim() !== '' ? value.trim() : 'Layer')
+        break
+      case 'rename':
+        if (typeof value !== 'string' || value.trim() === '') return
+        next = updateLayer(doc, layerId, { name: value.trim() })
+        break
+      case 'visibility':
+        next = updateLayer(doc, layerId, { visible: value === true })
+        break
+      case 'lock':
+        next = updateLayer(doc, layerId, { locked: value === true })
+        break
+      case 'activate':
+        next = setActiveLayer(doc, layerId)
+        break
+      case 'remove':
+        next = removeLayer(doc, layerId)
+        break
+    }
+    if (next === doc) return
+
+    this.#history = commit(this.#history, next)
+    canvas.setDocument(next)
+    this.#scheduleAutosave(next)
+    this.#syncLayerPanel()
+  }
+
+  #onBlocked = (event: Event): void => {
+    const { reason } = (event as CustomEvent<{ reason: 'locked' }>).detail
+    if (reason === 'locked') this.querySelector('status-bar')?.setHint('That layer is locked')
+  }
+
   #onDocChange = (event: Event): void => {
     const doc = (event as CustomEvent<{ document: DrawingDocument }>).detail.document
     this.#history = commit(this.#history, doc)
     this.#scheduleAutosave(doc)
+    this.#syncLayerPanel()
   }
 
   #onPointerReadout = (event: Event): void => {
@@ -217,6 +291,8 @@ export class AppShell extends HTMLElement {
   #onSelectionChange = (event: Event): void => {
     const { id } = (event as CustomEvent<{ id: EntityId | null }>).detail
     this.querySelector('status-bar')?.setSelection(id === null ? null : { id })
+    // Any new interaction supersedes a refusal hint.
+    this.querySelector('status-bar')?.setHint(null)
   }
 
   #onShortcut = (event: KeyboardEvent): void => {
@@ -242,6 +318,8 @@ export class AppShell extends HTMLElement {
     this.#history = undo(this.#history)
     this.querySelector('cad-canvas')?.setDocument(current(this.#history))
     this.#scheduleAutosave(current(this.#history))
+    // A history walk can restore a different layer table.
+    this.#syncLayerPanel()
   }
 
   #applyRedo(event: KeyboardEvent): void {
@@ -250,6 +328,7 @@ export class AppShell extends HTMLElement {
     this.#history = redo(this.#history)
     this.querySelector('cad-canvas')?.setDocument(current(this.#history))
     this.#scheduleAutosave(current(this.#history))
+    this.#syncLayerPanel()
   }
 }
 

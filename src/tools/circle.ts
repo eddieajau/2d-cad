@@ -12,7 +12,8 @@ export interface CircleToolState extends ToolState {
   readonly anchor?: WorldPoint
 }
 
-function makeCircle(centre: WorldPoint, edge: WorldPoint): CircleEntity {
+/** A layerless draft — `addEntity` assigns the active layer on commit. */
+function makeCircle(centre: WorldPoint, edge: WorldPoint): Omit<CircleEntity, 'layerId'> {
   return {
     id: createEntityId(),
     type: 'circle',

@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createDocument, addEntity } from '../../../document.js'
+import { createDocument, addEntity, updateLayer } from '../../../document.js'
 import { TEXT_DEFAULT_SIZE } from '../../../tools/text.js'
 import type { ToolId } from '../../../tools/types.js'
 import './index.js'
@@ -157,6 +157,7 @@ describe('cad-canvas', () => {
       expect(doc.entities[0]).toEqual({
         id: expect.any(String),
         type: 'line',
+        layerId: 'layer-0',
         x1: 10,
         y1: -10,
         x2: 30,
@@ -349,6 +350,26 @@ describe('cad-canvas', () => {
 
       el.remove()
     })
+
+    it('deleting an entity on a locked layer is refused with a blocked event', () => {
+      const el = makeSelectScene()
+      const blocked: CustomEvent[] = []
+      el.addEventListener('cad-canvas:blocked', event => blocked.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 20, 0)
+      expect(el.getSelection()).toBe('e1')
+
+      // Lock the layer underneath the selection; the edit is refused at the
+      // boundary and the document is untouched.
+      el.setDocument(updateLayer(el.getDocument(), 'layer-0', { locked: true }))
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }))
+
+      expect(blocked).toHaveLength(1)
+      expect(blocked[0].detail).toEqual({ reason: 'locked' })
+      expect(el.getDocument().entities).toHaveLength(1)
+
+      el.remove()
+    })
   })
 
   describe('move + copy', () => {
@@ -371,15 +392,27 @@ describe('cad-canvas', () => {
       pointer(el, 'pointermove', 30, 10)
 
       // During the drag the document is unchanged; only the preview differs.
-      expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }])
+      expect(el.getDocument().entities).toEqual([
+        { id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 0 },
+      ])
       await new Promise(resolve => requestAnimationFrame(resolve))
       const lastCall = renderSceneMock.mock.calls.at(-1)!
-      expect(lastCall[3].preview).toEqual({ id: 'e1', type: 'line', x1: 10, y1: -10, x2: 50, y2: -10 })
+      expect(lastCall[3].preview).toEqual({
+        id: 'e1',
+        type: 'line',
+        layerId: 'layer-0',
+        x1: 10,
+        y1: -10,
+        x2: 50,
+        y2: -10,
+      })
       expect(lastCall[3].selectedId).toBe('e1')
 
       pointer(el, 'pointerup', 30, 10)
 
-      expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 10, y1: -10, x2: 50, y2: -10 }])
+      expect(el.getDocument().entities).toEqual([
+        { id: 'e1', type: 'line', layerId: 'layer-0', x1: 10, y1: -10, x2: 50, y2: -10 },
+      ])
       expect(el.getSelection()).toBe('e1')
 
       el.remove()
@@ -397,7 +430,7 @@ describe('cad-canvas', () => {
 
       const doc = el.getDocument()
       expect(doc.entities).toHaveLength(2)
-      expect(doc.entities[0]).toEqual({ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 })
+      expect(doc.entities[0]).toEqual({ id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 0 })
       const clone = doc.entities[1]!
       expect(clone).toMatchObject({ type: 'line', x1: 10, y1: -10, x2: 50, y2: -10 })
       expect(clone.id).not.toBe('e1')
@@ -414,7 +447,9 @@ describe('cad-canvas', () => {
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
       pointer(el, 'pointerup', 30, 10)
 
-      expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }])
+      expect(el.getDocument().entities).toEqual([
+        { id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 0 },
+      ])
       // Pre-drag state had the entity selected — that survives the cancel.
       expect(el.getSelection()).toBe('e1')
 
@@ -459,6 +494,7 @@ describe('cad-canvas', () => {
       expect(el.getDocument().entities[0]).toEqual({
         id: expect.any(String),
         type: 'line',
+        layerId: 'layer-0',
         x1: 10,
         y1: -10,
         x2: 30,
@@ -513,7 +549,15 @@ describe('cad-canvas', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 
       expect(el.getDocument().entities).toEqual([
-        { id: expect.any(String), type: 'text', x: 10, y: -10, text: 'note', size: TEXT_DEFAULT_SIZE },
+        {
+          id: expect.any(String),
+          type: 'text',
+          layerId: 'layer-0',
+          x: 10,
+          y: -10,
+          text: 'note',
+          size: TEXT_DEFAULT_SIZE,
+        },
       ])
       expect(el.querySelector('input.text-entry')).toBeNull()
       expect(document.activeElement).toBe(el)
@@ -603,7 +647,16 @@ describe('cad-canvas', () => {
 
       // screenToWorld negates y, so a world y of 0 arrives as -0.
       expect(el.getDocument().entities).toEqual([
-        { id: expect.any(String), type: 'dim', x1: 0, y1: -0, x2: 40, y2: -0, offset: 5 },
+        {
+          id: expect.any(String),
+          type: 'dim',
+          layerId: 'layer-0',
+          x1: 0,
+          y1: -0,
+          x2: 40,
+          y2: -0,
+          offset: 5,
+        },
       ])
 
       el.remove()
@@ -644,7 +697,9 @@ describe('cad-canvas', () => {
       pointer(el, 'pointermove', 5, 6)
       pointer(el, 'pointerup', 5, 6)
 
-      expect(el.getDocument().entities).toEqual([{ id: expect.any(String), type: 'circle', cx: 2, cy: -2, r: 5 }])
+      expect(el.getDocument().entities).toEqual([
+        { id: expect.any(String), type: 'circle', layerId: 'layer-0', cx: 2, cy: -2, r: 5 },
+      ])
 
       el.remove()
     })

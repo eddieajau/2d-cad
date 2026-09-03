@@ -3,14 +3,15 @@
  * @license   MIT
  */
 
-import type { CircleEntity, DimEntity, DrawingDocument, Entity, RectEntity, TextEntity } from './document.js'
-import { dimLine, textBounds } from './geometry.js'
+import type { CircleEntity, DrawingDocument, Entity, RectEntity } from './document.js'
+import { dimLine, textBounds, type DimGeometry, type TextGeometry } from './geometry.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
  * Geometric hit testing in world space — a zoom-independent replacement for
  * pixel picking. Distances are world units; the caller scales its screen
- * tolerance (px) by the viewport scale.
+ * tolerance (px) by the viewport scale. Like geometry, these helpers never
+ * read `layerId`.
  */
 
 /** Shortest distance from `p` to the segment `a`–`b`. */
@@ -25,7 +26,7 @@ export function distanceToLineSegment(p: WorldPoint, a: WorldPoint, b: WorldPoin
 }
 
 /** Distance from `p` to a circle's edge: |distance-to-centre − radius|. */
-export function distanceToCircle(p: WorldPoint, e: CircleEntity): number {
+export function distanceToCircle(p: WorldPoint, e: Omit<CircleEntity, 'layerId'>): number {
   return Math.abs(Math.hypot(p.x - e.cx, p.y - e.cy) - e.r)
 }
 
@@ -45,7 +46,7 @@ export function distanceToWorldRect(p: WorldPoint, r: WorldRect): number {
 }
 
 /** Distance from `p` to a rect's boundary (edge-or-interior semantics). */
-export function distanceToRect(p: WorldPoint, e: RectEntity): number {
+export function distanceToRect(p: WorldPoint, e: Omit<RectEntity, 'layerId'>): number {
   return distanceToWorldRect(p, {
     minX: Math.min(e.x, e.x + e.w),
     minY: Math.min(e.y, e.y + e.h),
@@ -55,12 +56,12 @@ export function distanceToRect(p: WorldPoint, e: RectEntity): number {
 }
 
 /** Distance from `p` to a text entity's bounding box (interior hits at 0). */
-export function distanceToText(p: WorldPoint, e: TextEntity): number {
+export function distanceToText(p: WorldPoint, e: TextGeometry): number {
   return distanceToWorldRect(p, textBounds(e))
 }
 
 /** Distance from `p` to a dimension's offset dimension line. */
-export function distanceToDim(p: WorldPoint, e: DimEntity): number {
+export function distanceToDim(p: WorldPoint, e: DimGeometry): number {
   const { a, b } = dimLine(e)
   return distanceToLineSegment(p, a, b)
 }
@@ -80,11 +81,19 @@ export function distanceToEntity(p: WorldPoint, entity: Entity): number {
   }
 }
 
-/** Nearest entity within `tolerance` world units of `p`, or null on a miss. */
+/**
+ * Nearest entity within `tolerance` world units of `p`, or null on a miss.
+ * Layer enforcement lives here at pick time: entities on invisible layers
+ * are never seen, and locked layers are additionally unselectable — the
+ * canvas page refuses edits to locked layers via `isEditable`.
+ */
 export function hitTest(doc: DrawingDocument, p: WorldPoint, tolerance: number): Entity | null {
+  const layers = new Map(doc.layers.map(layer => [layer.id, layer]))
   let best: Entity | null = null
   let bestDistance = Infinity
   for (const entity of doc.entities) {
+    const layer = layers.get(entity.layerId)
+    if (layer === undefined || !layer.visible || layer.locked) continue
     const distance = distanceToEntity(p, entity)
     if (distance <= tolerance && distance < bestDistance) {
       best = entity

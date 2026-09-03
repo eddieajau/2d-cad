@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { addEntity, createDocument, type DrawingDocument, type Entity } from './document.js'
+import { addEntity, addLayer, createDocument, updateLayer, type DrawingDocument, type Entity } from './document.js'
 import { drawDim, drawText, formatLength, gridInterval, renderGrid, renderScene, type RenderOptions } from './render.js'
 import type { Viewport } from './viewport.js'
 
@@ -49,9 +49,9 @@ const options: RenderOptions = {
   },
 }
 
-const line = { id: 'e1', type: 'line', x1: 10, y1: 10, x2: 50, y2: 30 } as const
-const circle = { id: 'e2', type: 'circle', cx: 100, cy: 100, r: 20 } as const
-const rect = { id: 'e3', type: 'rect', x: 20, y: 20, w: 30, h: 10 } as const
+const line = { id: 'e1', type: 'line', layerId: 'layer-0', x1: 10, y1: 10, x2: 50, y2: 30 } as const
+const circle = { id: 'e2', type: 'circle', layerId: 'layer-0', cx: 100, cy: 100, r: 20 } as const
+const rect = { id: 'e3', type: 'rect', layerId: 'layer-0', x: 20, y: 20, w: 30, h: 10 } as const
 
 function docWith(...entities: Entity[]): DrawingDocument {
   let doc = createDocument()
@@ -99,8 +99,8 @@ describe('renderScene', () => {
 
   it('renders text and dim entities with the ink fill', () => {
     const { ctx, calls } = createCtxStub()
-    const text = { id: 't1', type: 'text', x: 10, y: 10, text: 'note', size: 12 } as const
-    const dim = { id: 'd1', type: 'dim', x1: 0, y1: 0, x2: 40, y2: 0, offset: 5 } as const
+    const text = { id: 't1', type: 'text', layerId: 'layer-0', x: 10, y: 10, text: 'note', size: 12 } as const
+    const dim = { id: 'd1', type: 'dim', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 0, offset: 5 } as const
     renderScene(ctx, docWith(text, dim), viewport, options)
 
     expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.ink] })
@@ -110,20 +110,36 @@ describe('renderScene', () => {
 
   it('highlights a selected text entity with the selection fill', () => {
     const { ctx, calls } = createCtxStub()
-    const text = { id: 't1', type: 'text', x: 10, y: 10, text: 'note', size: 12 } as const
+    const text = { id: 't1', type: 'text', layerId: 'layer-0', x: 10, y: 10, text: 'note', size: 12 } as const
     renderScene(ctx, docWith(text), viewport, { ...options, selectedId: 't1' })
 
     expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.selection] })
   })
 
   it('culls entities outside the visible world rect', () => {
-    const offscreenRect = { id: 'e4', type: 'rect', x: 2000, y: 2000, w: 100, h: 100 } as const
-    const offscreenCircle = { id: 'e5', type: 'circle', cx: -500, cy: 0, r: 10 } as const
+    const offscreenRect = { id: 'e4', type: 'rect', layerId: 'layer-0', x: 2000, y: 2000, w: 100, h: 100 } as const
+    const offscreenCircle = { id: 'e5', type: 'circle', layerId: 'layer-0', cx: -500, cy: 0, r: 10 } as const
     const { ctx, calls } = createCtxStub()
     renderScene(ctx, docWith(offscreenRect, offscreenCircle), viewport, options)
 
     expect(calls.some(c => c.method === 'arc')).toBe(false)
     expect(calls.some(c => c.method === 'strokeRect')).toBe(false)
+  })
+
+  it('skips entities on invisible layers, including a stale selection', () => {
+    let doc = addLayer(createDocument(), 'Hidden')
+    const hiddenId = doc.layers[1]!.id
+    doc = addEntity(doc, { ...line, layerId: hiddenId })
+    doc = updateLayer(doc, hiddenId, { visible: false })
+
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, doc, viewport, { ...options, selectedId: line.id })
+
+    // The hidden entity's geometry never reaches the screen…
+    expect(calls).not.toContainEqual({ method: 'lineTo', args: [50, 270] })
+    expect(calls).not.toContainEqual({ method: 'lineTo', args: [10, 270] })
+    // …and a stale selection on the hidden layer is not highlighted.
+    expect(calls.some(c => c.method === 'set:strokeStyle' && c.args[0] === options.theme.selection)).toBe(false)
   })
 
   it('draws entities inside the visible world rect', () => {

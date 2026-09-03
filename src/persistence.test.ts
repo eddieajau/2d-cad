@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { addEntity, createDocument, DocumentParseError, type DrawingDocument, type LineEntity } from './document.js'
 import { downloadDocument, loadLocal, openDocument, saveLocal } from './persistence.js'
 
-const line: LineEntity = { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 20 }
+const line: LineEntity = { id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 20 }
 
 function makeDoc(): DrawingDocument {
   return addEntity(createDocument(), line)
@@ -66,7 +66,13 @@ describe('downloadDocument', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:cad')
 
     const blob = createObjectURL.mock.calls[0]![0] as Blob
-    await expect(blob.text()).resolves.toBe(JSON.stringify({ entities: [line] }))
+    await expect(blob.text()).resolves.toBe(
+      JSON.stringify({
+        layers: [{ id: 'layer-0', name: 'Default', visible: true, locked: false }],
+        activeLayerId: 'layer-0',
+        entities: [line],
+      })
+    )
 
     createElement.mockRestore()
     click.mockRestore()
@@ -78,6 +84,13 @@ describe('downloadDocument', () => {
 describe('openDocument', () => {
   it('parses a saved file back into a document', async () => {
     const file = new File([JSON.stringify({ entities: [line] })], 'drawing.json', { type: 'application/json' })
+
+    await expect(openDocument(file)).resolves.toEqual(makeDoc())
+  })
+
+  it('loads a pre-layer file onto a synthesised default layer', async () => {
+    const legacy = JSON.stringify({ entities: [{ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 20 }] })
+    const file = new File([legacy], 'drawing.json', { type: 'application/json' })
 
     await expect(openDocument(file)).resolves.toEqual(makeDoc())
   })

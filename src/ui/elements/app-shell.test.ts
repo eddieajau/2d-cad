@@ -6,11 +6,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CadCanvas } from '../pages/canvas/index.js'
+import type { LayerPanelChange } from './layer-panel.js'
 import type { ToolPalette } from './tool-palette.js'
 import './app-shell.js'
 
+const { renderSceneMock } = vi.hoisted(() => ({ renderSceneMock: vi.fn() }))
+// Mock only the scene renderer (happy-dom's 2D context is null) so mediator
+// tests can inspect what the canvas would draw.
+vi.mock('../../render.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../render.js')>()),
+  renderScene: renderSceneMock,
+}))
+
 beforeEach(() => {
   localStorage.clear()
+  renderSceneMock.mockClear()
 })
 
 afterEach(() => {
@@ -39,6 +49,7 @@ describe('app-shell', () => {
 
     expect(el.querySelector('.brand')?.textContent).toBe('2D CAD')
     expect(el.querySelector('tool-palette')).not.toBeNull()
+    expect(el.querySelector('layer-panel')).not.toBeNull()
     expect(el.querySelector('cad-canvas')).toBeInstanceOf(CadCanvas)
 
     el.remove()
@@ -100,6 +111,79 @@ describe('app-shell', () => {
       canvas.setTool('select')
       inner.dispatchEvent(new PointerEvent('pointerdown', { clientX: 20, clientY: 0, bubbles: true }))
       expect(bar.querySelector('.status-selection')?.textContent).toMatch(/^Selected: e\d+$/)
+
+      shell.remove()
+    })
+  })
+
+  describe('layer panel', () => {
+    /** A shell whose canvas can reach the (mocked) renderer. */
+    function makeDrawableShell(): { shell: HTMLElement; canvas: CadCanvas } {
+      const { shell, canvas } = makeShell()
+      const inner = canvas.querySelector('canvas')!
+      inner.getContext = (() => ({}) as unknown) as typeof inner.getContext
+      return { shell, canvas }
+    }
+
+    function emitChange(panel: Element, detail: LayerPanelChange): void {
+      panel.dispatchEvent(new CustomEvent('layer-panel:change', { detail, bubbles: true, composed: true }))
+    }
+
+    it('seeds the panel and maps add ops onto the document through the history', () => {
+      const { shell, canvas } = makeDrawableShell()
+      const panel = shell.querySelector('layer-panel')!
+      expect(panel.querySelectorAll('.layer-row')).toHaveLength(1)
+
+      emitChange(panel, { op: 'add', layerId: '', value: 'Office' })
+      expect(canvas.getDocument().layers.map(layer => layer.name)).toEqual(['Default', 'Office'])
+
+      // Layer changes are undoable like any edit.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+      expect(canvas.getDocument().layers).toHaveLength(1)
+
+      shell.remove()
+    })
+
+    it('a visibility op hides the layer from hit-testing and rendering', async () => {
+      const { shell, canvas } = makeDrawableShell()
+
+      // Commit a line through (0,0)–(40,0) and select it.
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 40, 0)
+      canvas.setTool('select')
+      pointer(canvas, 'pointerdown', 20, 0)
+      expect(canvas.getSelection()).not.toBeNull()
+
+      emitChange(shell.querySelector('layer-panel')!, { op: 'visibility', layerId: 'layer-0', value: false })
+
+      // Hidden entities can no longer be picked…
+      pointer(canvas, 'pointerdown', 20, 0)
+      expect(canvas.getSelection()).toBeNull()
+
+      // …and vanish from renderScene calls.
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      const lastCall = renderSceneMock.mock.calls.at(-1)!
+      expect(lastCall[1].layers[0].visible).toBe(false)
+
+      shell.remove()
+    })
+
+    it('a lock op makes the layer uneditable and surfaces a status-bar hint', () => {
+      const { shell, canvas } = makeDrawableShell()
+
+      emitChange(shell.querySelector('layer-panel')!, { op: 'lock', layerId: 'layer-0', value: true })
+      expect(canvas.getDocument().layers[0]?.locked).toBe(true)
+
+      // Locked entities are unselectable, so they cannot be moved or deleted.
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 40, 0)
+      canvas.setTool('select')
+      pointer(canvas, 'pointerdown', 20, 0)
+      expect(canvas.getSelection()).toBeNull()
+
+      // A refused edit announces itself through the status bar.
+      canvas.dispatchEvent(new CustomEvent('cad-canvas:blocked', { detail: { reason: 'locked' }, bubbles: true }))
+      expect(shell.querySelector('.status-hint')?.textContent).toBe('That layer is locked')
 
       shell.remove()
     })

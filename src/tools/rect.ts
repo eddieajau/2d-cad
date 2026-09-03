@@ -12,7 +12,8 @@ export interface RectToolState extends ToolState {
   readonly anchor?: WorldPoint
 }
 
-function makeRect(a: WorldPoint, b: WorldPoint): RectEntity {
+/** A layerless draft — `addEntity` assigns the active layer on commit. */
+function makeRect(a: WorldPoint, b: WorldPoint): Omit<RectEntity, 'layerId'> {
   return {
     id: createEntityId(),
     type: 'rect',

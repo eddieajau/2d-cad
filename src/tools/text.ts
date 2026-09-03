@@ -49,7 +49,8 @@ export class TextTool implements Tool<TextToolState> {
     const placing = state.placing
     // Cancel or a blank entry places nothing.
     if (!placing || value === null || value.trim() === '') return { state: {} }
-    const entity: TextEntity = {
+    // A layerless draft — `addEntity` assigns the active layer on commit.
+    const entity: Omit<TextEntity, 'layerId'> = {
       id: createEntityId(),
       type: 'text',
       x: placing.x,

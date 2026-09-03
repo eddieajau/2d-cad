@@ -3,7 +3,7 @@
  * @license   MIT
  */
 
-import type { DrawingDocument, Entity, EntityId } from '../document.js'
+import type { DrawingDocument, Entity, EntityDraft, EntityId } from '../document.js'
 import type { Viewport, WorldPoint } from '../viewport.js'
 
 export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim'
@@ -16,16 +16,17 @@ export interface ToolContext {
 
 export interface ToolState {
   /** Entity drawn on top of the scene while the tool is mid-gesture. */
-  readonly preview?: Entity
+  readonly preview?: EntityDraft
 }
 
 /**
  * A single document operation handed back on gesture completion. `add`
- * creates a new entity; `update` replaces the entity with the same id.
- * Keeping commits as discrete ops lets undo (ticket 8) wrap each one.
+ * creates a new entity (a draft — `addEntity` defaults its layer to the
+ * active layer); `update` replaces the entity with the same id. Keeping
+ * commits as discrete ops lets undo (ticket 8) wrap each one.
  */
 export type ToolCommit =
-  | { readonly kind: 'add'; readonly entity: Entity }
+  | { readonly kind: 'add'; readonly entity: EntityDraft }
   | { readonly kind: 'update'; readonly entity: Entity }
 
 export interface ToolPointerResult<S extends ToolState> {

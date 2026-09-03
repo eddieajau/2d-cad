@@ -14,7 +14,7 @@ function makeCtx(doc: DrawingDocument): ToolContext {
   return { doc, viewport: { offsetX: 0, offsetY: 0, scale: 1 } satisfies Viewport }
 }
 
-const line = { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 } as const
+const line = { id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 0 } as const
 
 function docWithLine(): DrawingDocument {
   return addEntity(createDocument(), line)

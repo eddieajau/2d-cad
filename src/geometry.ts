@@ -9,7 +9,16 @@ import type { WorldPoint, WorldRect } from './viewport.js'
 /**
  * Geometric derivations shared by rendering, hit testing, and tools —
  * pure world-space math with no canvas or viewport dependency.
+ *
+ * Geometry never reads `layerId`, so params accept the entity type without
+ * it (drafts from tools satisfy these too).
  */
+
+/** A text entity without its layer reference. */
+export type TextGeometry = Omit<TextEntity, 'layerId'>
+
+/** A dim entity without its layer reference. */
+export type DimGeometry = Omit<DimEntity, 'layerId'>
 
 /**
  * Approximate advance width per character, in em, for the single drafting
@@ -21,7 +30,7 @@ const CHAR_WIDTH_EM = 0.6
  * Bounding box of a text entity: baseline-left anchor, ascending by the
  * font size (world is y-up), width approximated for the drafting font.
  */
-export function textBounds(e: TextEntity): WorldRect {
+export function textBounds(e: TextGeometry): WorldRect {
   const width = e.text.length * CHAR_WIDTH_EM * e.size
   return { minX: e.x, minY: e.y, maxX: e.x + width, maxY: e.y + e.size }
 }
@@ -31,7 +40,7 @@ export function textBounds(e: TextEntity): WorldRect {
  * by `offset` along its left-hand normal (positive offset sits left of the
  * x1,y1 → x2,y2 direction). Degenerate segments collapse onto their anchor.
  */
-export function dimLine(e: DimEntity): { a: WorldPoint; b: WorldPoint } {
+export function dimLine(e: DimGeometry): { a: WorldPoint; b: WorldPoint } {
   const dx = e.x2 - e.x1
   const dy = e.y2 - e.y1
   const length = Math.hypot(dx, dy)

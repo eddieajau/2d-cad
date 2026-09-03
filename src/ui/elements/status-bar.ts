@@ -23,9 +23,11 @@ export class StatusBar extends HTMLElement {
   #position: WorldPoint | null = null
   #snapMode: SnapMode = 'off'
   #selectedId: EntityId | null = null
+  #hintText: string | null = null
   #coords: HTMLSpanElement | null = null
   #snap: HTMLSpanElement | null = null
   #selection: HTMLSpanElement | null = null
+  #hint: HTMLSpanElement | null = null
 
   connectedCallback(): void {
     this.render()
@@ -36,10 +38,12 @@ export class StatusBar extends HTMLElement {
       <span class="status-coords" aria-live="polite">x: —, y: —</span>
       <span class="status-snap">Snap: off (G)</span>
       <span class="status-selection" aria-live="polite">No selection</span>
+      <span class="status-hint" aria-live="polite"></span>
     `
     this.#coords = this.querySelector('.status-coords')
     this.#snap = this.querySelector('.status-snap')
     this.#selection = this.querySelector('.status-selection')
+    this.#hint = this.querySelector('.status-hint')
     this.syncDisplay()
   }
 
@@ -62,10 +66,17 @@ export class StatusBar extends HTMLElement {
     this.#selection.textContent = this.#selectedId === null ? 'No selection' : `Selected: ${String(this.#selectedId)}`
   }
 
+  /** A transient refusal message (e.g. a locked-layer edit), or null to clear. */
+  setHint(text: string | null): void {
+    this.#hintText = text
+    if (this.#hint !== null) this.#hint.textContent = text ?? ''
+  }
+
   syncDisplay(): void {
     if (this.#position !== null) this.setPosition(this.#position)
     this.setSnap(this.#snapMode)
     this.setSelection(this.#selectedId === null ? null : { id: this.#selectedId })
+    this.setHint(this.#hintText)
   }
 }
 

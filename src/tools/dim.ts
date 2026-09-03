@@ -15,7 +15,8 @@ export interface DimToolState extends ToolState {
   readonly second?: WorldPoint
 }
 
-function makeDim(first: WorldPoint, second: WorldPoint, offset: number): DimEntity {
+/** A layerless draft — `addEntity` assigns the active layer on commit. */
+function makeDim(first: WorldPoint, second: WorldPoint, offset: number): Omit<DimEntity, 'layerId'> {
   return {
     id: createEntityId(),
     type: 'dim',

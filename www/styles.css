@@ -175,6 +175,137 @@ tool-palette button:focus-visible {
   outline-offset: 2px;
 }
 
+/* Tool strip: palette on the left, layer panel pushed to the right. */
+.tool-strip {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-strip tool-palette {
+  border-bottom: none;
+  flex: 1;
+}
+
+/* Layer panel: text/controls match the palette contrast rules (text ≥ 4.5:1,
+    control borders ≥ 3:1 against --surface) in both themes. */
+layer-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-left: 1px solid var(--border);
+}
+
+layer-panel .layer-rows {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+layer-panel .layer-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+
+/* The active layer's row carries the accent so the radio state reads at a glance. */
+layer-panel .layer-row:has(.layer-active[aria-checked='true']) {
+  border-color: var(--accent);
+}
+
+layer-panel button {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+layer-panel button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+layer-panel .layer-active {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+layer-panel .layer-active[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+layer-panel .layer-name {
+  padding: 2px 6px;
+  border-color: transparent;
+}
+
+layer-panel .layer-name:hover {
+  border-color: var(--muted);
+}
+
+layer-panel .layer-visible svg,
+layer-panel .layer-lock svg {
+  width: 14px;
+  height: 14px;
+}
+
+layer-panel .layer-visible,
+layer-panel .layer-lock {
+  padding: 2px;
+}
+
+layer-panel .layer-visible[aria-pressed='false'],
+layer-panel .layer-lock[aria-pressed='true'] {
+  color: var(--muted);
+}
+
+layer-panel .layer-remove {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  justify-content: center;
+}
+
+layer-panel .layer-remove:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+layer-panel input.layer-rename {
+  width: 10ch;
+  padding: 2px 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+}
+
+layer-panel input.layer-rename:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+layer-panel .layer-add {
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
 /* Readout text uses --text: ≥ 4.5:1 against --surface in both themes. */
 status-bar {
   display: flex;

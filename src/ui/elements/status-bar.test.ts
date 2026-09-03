@@ -47,6 +47,15 @@ describe('status-bar', () => {
     el.remove()
   })
 
+  it('setHint shows and clears a transient refusal message', () => {
+    const el = makeBar()
+    el.setHint('That layer is locked')
+    expect(el.querySelector('.status-hint')?.textContent).toBe('That layer is locked')
+    el.setHint(null)
+    expect(el.querySelector('.status-hint')?.textContent).toBe('')
+    el.remove()
+  })
+
   it('re-renders with current state when reconnected', () => {
     const el = makeBar()
     el.setPosition({ x: 1.5, y: 2 })

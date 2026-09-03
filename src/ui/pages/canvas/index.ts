@@ -7,6 +7,7 @@ import {
   addEntity,
   createDocument,
   getEntity,
+  isEditable,
   removeEntity,
   updateEntity,
   type DrawingDocument,
@@ -31,6 +32,8 @@ export interface CadCanvasEventMap {
   'cad-canvas:delete': CustomEvent<{ entity: Entity; document: DrawingDocument }>
   'cad-canvas:selection': CustomEvent<{ id: EntityId | null }>
   'cad-canvas:snap': CustomEvent<{ mode: SnapMode }>
+  /** An edit was refused — currently only by a locked layer. */
+  'cad-canvas:blocked': CustomEvent<{ reason: 'locked' }>
 }
 
 /** The available tool set. Tools are stateless, so instances are shared. */
@@ -318,6 +321,16 @@ export class CadCanvas extends HTMLElement {
     )
   }
 
+  #emitBlocked(reason: 'locked'): void {
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:blocked', {
+        bubbles: true,
+        composed: true,
+        detail: { reason },
+      })
+    )
+  }
+
   #setSelection(id: EntityId | null): void {
     if (id === this.#selectedId) return
     this.#selectedId = id
@@ -335,6 +348,11 @@ export class CadCanvas extends HTMLElement {
     const id = this.#selectedId
     if (id === null) return
     const entity = getEntity(this.#document, id)
+    // Edits on locked layers are refused at the edit boundary.
+    if (entity !== undefined && !isEditable(this.#document, entity)) {
+      this.#emitBlocked('locked')
+      return
+    }
     // A disappearing selection kills any drag referencing it.
     this.#toolState = this.#tool.init()
     this.#setSelection(null)
@@ -351,15 +369,25 @@ export class CadCanvas extends HTMLElement {
   }
 
   #applyCommit(commit: ToolCommit): void {
-    this.#document =
-      commit.kind === 'add'
-        ? addEntity(this.#document, commit.entity)
-        : updateEntity(this.#document, commit.entity.id, commit.entity)
+    if (commit.kind === 'add') {
+      this.#document = addEntity(this.#document, commit.entity)
+    } else {
+      // Edits on locked layers are refused at the commit boundary (the
+      // hit test already keeps drags off locked entities).
+      const existing = getEntity(this.#document, commit.entity.id)
+      if (existing !== undefined && !isEditable(this.#document, existing)) {
+        this.#emitBlocked('locked')
+        return
+      }
+      this.#document = updateEntity(this.#document, commit.entity.id, commit.entity)
+    }
+    // The stored entity carries the applied layer for adds.
+    const entity = getEntity(this.#document, commit.entity.id)!
     this.dispatchEvent(
       new CustomEvent('cad-canvas:commit', {
         bubbles: true,
         composed: true,
-        detail: { entity: commit.entity, document: this.#document },
+        detail: { entity, document: this.#document },
       })
     )
   }

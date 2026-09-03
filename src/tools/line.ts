@@ -12,7 +12,8 @@ export interface LineToolState extends ToolState {
   readonly anchor?: WorldPoint
 }
 
-function makeLine(a: WorldPoint, b: WorldPoint): LineEntity {
+/** A layerless draft — `addEntity` assigns the active layer on commit. */
+function makeLine(a: WorldPoint, b: WorldPoint): Omit<LineEntity, 'layerId'> {
   return { id: createEntityId(), type: 'line', x1: a.x, y1: a.y, x2: b.x, y2: b.y }
 }
 
