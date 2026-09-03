@@ -11,10 +11,12 @@ export interface ToolPaletteEventMap {
 
 type ToolPaletteAttribute = 'tools' | 'active'
 
-const TOOL_LABELS: Record<ToolId, string> = { line: 'Line', rect: 'Rect', circle: 'Circle' }
+const TOOL_LABELS: Record<ToolId, string> = { select: 'Select', line: 'Line', rect: 'Rect', circle: 'Circle' }
 
 // Decorative glyphs; the text label carries the accessible name.
 const TOOL_ICONS: Record<ToolId, string> = {
+  select:
+    '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l7.5 6.9-3.5.7 1.9 3.9-1.8.9-1.9-4L4 12.6z" fill="currentColor"/></svg>',
   line: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 14 14 2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   rect: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="4" width="11" height="8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   circle:

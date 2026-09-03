@@ -3,25 +3,41 @@
  * @license   MIT
  */
 
-import { addEntity, createDocument, type DrawingDocument, type Entity } from '../../../document.js'
+import {
+  addEntity,
+  createDocument,
+  getEntity,
+  removeEntity,
+  type DrawingDocument,
+  type Entity,
+  type EntityId,
+} from '../../../document.js'
+import { hitTest } from '../../../hit-test.js'
 import { renderScene } from '../../../render.js'
 import { CircleTool } from '../../../tools/circle.js'
 import { LineTool } from '../../../tools/line.js'
 import { RectTool } from '../../../tools/rect.js'
+import { SelectTool } from '../../../tools/select.js'
 import type { Tool, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
 import { panBy, screenToWorld, zoomAt, type Viewport } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
   'cad-canvas:pointer': CustomEvent<{ world: { x: number; y: number }; buttons: number }>
   'cad-canvas:commit': CustomEvent<{ entity: Entity; document: DrawingDocument }>
+  'cad-canvas:delete': CustomEvent<{ entity: Entity; document: DrawingDocument }>
+  'cad-canvas:selection': CustomEvent<{ id: EntityId | null }>
 }
 
 /** The available tool set. Tools are stateless, so instances are shared. */
 const TOOLS: Record<ToolId, Tool> = {
+  select: new SelectTool(),
   line: new LineTool(),
   rect: new RectTool(),
   circle: new CircleTool(),
 }
+
+/** Click tolerance for hit testing, in screen pixels. */
+const SELECT_TOLERANCE_PX = 8
 
 const MAX_DEVICE_PIXEL_RATIO = 2
 
@@ -29,6 +45,7 @@ const DEFAULT_THEME = {
   gridMinor: '#8a93a3',
   gridMajor: '#66707f',
   ink: '#1f2430',
+  selection: '#b45309',
 }
 
 export class CadCanvas extends HTMLElement {
@@ -40,6 +57,7 @@ export class CadCanvas extends HTMLElement {
   #document: DrawingDocument = createDocument()
   #tool: Tool = TOOLS.line
   #toolState: ToolState = this.#tool.init()
+  #selectedId: EntityId | null = null
   #dirty = false
   #rafId = 0
 
@@ -121,17 +139,22 @@ export class CadCanvas extends HTMLElement {
     return this.#document
   }
 
-  /** Switch the active tool; any in-progress gesture is reset. */
+  /** Switch the active tool; any in-progress gesture or selection is reset. */
   setTool(id: ToolId): void {
     const tool = TOOLS[id]
     if (tool === undefined || tool === this.#tool) return
     this.#tool = tool
     this.#toolState = tool.init()
+    this.#setSelection(null)
     this.invalidate()
   }
 
   getTool(): ToolId {
     return this.#tool.id
+  }
+
+  getSelection(): EntityId | null {
+    return this.#selectedId
   }
 
   #draw(): void {
@@ -149,7 +172,9 @@ export class CadCanvas extends HTMLElement {
         gridMinor: cssVar('--canvas-grid-minor', DEFAULT_THEME.gridMinor),
         gridMajor: cssVar('--canvas-grid-major', DEFAULT_THEME.gridMajor),
         ink: cssVar('--canvas-ink', DEFAULT_THEME.ink),
+        selection: cssVar('--canvas-selection', DEFAULT_THEME.selection),
       },
+      selectedId: this.#selectedId,
     })
   }
 
@@ -189,6 +214,14 @@ export class CadCanvas extends HTMLElement {
     const rect = canvas.getBoundingClientRect()
     const world = screenToWorld(this.#viewport, event.clientX - rect.left, event.clientY - rect.top)
 
+    // In select mode a click picks the nearest entity; the tolerance is
+    // defined in screen px and scaled into world units for the hit test.
+    if (event.type === 'pointerdown' && this.#tool.id === 'select') {
+      const tolerance = SELECT_TOLERANCE_PX / this.#viewport.scale
+      const hit = hitTest(this.#document, world, tolerance)
+      this.#setSelection(hit?.id ?? null)
+    }
+
     // Route the gesture through the active tool first; the pointer event
     // still bubbles outward as `cad-canvas:pointer` for the mediator.
     const ctx: ToolContext = { doc: this.#document, viewport: this.#viewport }
@@ -213,9 +246,52 @@ export class CadCanvas extends HTMLElement {
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {
+    // Selection keyboard paths — only meaningful while the select tool is active.
+    if (this.#tool.id === 'select' && this.#selectedId !== null) {
+      if (event.key === 'Escape') {
+        this.#setSelection(null)
+        return
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault()
+        this.#deleteSelected()
+        return
+      }
+    }
+
     const next = this.#tool.onKey?.(this.#toolState, event)
     if (next === undefined || next === this.#toolState) return
     this.#toolState = next
+    this.invalidate()
+  }
+
+  #setSelection(id: EntityId | null): void {
+    if (id === this.#selectedId) return
+    this.#selectedId = id
+    this.invalidate()
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:selection', {
+        bubbles: true,
+        composed: true,
+        detail: { id },
+      })
+    )
+  }
+
+  #deleteSelected(): void {
+    const id = this.#selectedId
+    if (id === null) return
+    const entity = getEntity(this.#document, id)
+    this.#setSelection(null)
+    if (!entity) return
+    this.#document = removeEntity(this.#document, id)
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:delete', {
+        bubbles: true,
+        composed: true,
+        detail: { entity, document: this.#document },
+      })
+    )
     this.invalidate()
   }
 

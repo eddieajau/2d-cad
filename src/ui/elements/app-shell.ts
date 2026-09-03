@@ -28,7 +28,7 @@ export class AppShell extends HTMLElement {
       <header class="topnav">
         <a class="brand" href="#/">2D CAD</a>
       </header>
-      <tool-palette tools="line,rect,circle" active="line"></tool-palette>
+      <tool-palette tools="select,line,rect,circle" active="line"></tool-palette>
       <main class="app-main">
         <cad-canvas></cad-canvas>
       </main>

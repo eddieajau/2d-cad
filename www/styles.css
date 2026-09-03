@@ -10,10 +10,12 @@
   --radius: 6px;
   /* Canvas ink/grid pair. Grid lines meet ≥ 3:1 against --surface,
       grid labels (grid-major) ≥ 4.5:1; ink ≥ 4.5:1. Palette text/active
-      state ≥ 4.5:1 and borders ≥ 3:1 against --surface. */
+      state ≥ 4.5:1 and borders ≥ 3:1 against --surface. Selection
+      highlight ≥ 3:1 against --surface. */
   --canvas-grid-minor: #8a93a3;
   --canvas-grid-major: #66707f;
   --canvas-ink: #1f2430;
+  --canvas-selection: #b45309;
 }
 
 :root[data-theme='dark'] {
@@ -27,6 +29,7 @@
   --canvas-grid-minor: #5d6a86;
   --canvas-grid-major: #98a2b3;
   --canvas-ink: #eef1f6;
+  --canvas-selection: #f59e0b;
 }
 
 * {

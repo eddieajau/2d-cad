@@ -26,6 +26,7 @@ function createCtxStub(): { ctx: CanvasRenderingContext2D; calls: Call[] } {
     },
     set(t, prop, value) {
       t[prop] = value
+      calls.push({ method: `set:${String(prop)}`, args: [value] })
       return true
     },
   })
@@ -38,7 +39,7 @@ const viewport: Viewport = { offsetX: 0, offsetY: 300, scale: 1 }
 const options: RenderOptions = {
   width: 400,
   height: 300,
-  theme: { gridMinor: '#a0a0a0', gridMajor: '#666666', ink: '#000000' },
+  theme: { gridMinor: '#a0a0a0', gridMajor: '#666666', ink: '#000000', selection: '#ff8800' },
 }
 
 const line = { id: 'e1', type: 'line', x1: 10, y1: 10, x2: 50, y2: 30 } as const
@@ -130,5 +131,27 @@ describe('renderScene', () => {
     const { ctx, calls } = createCtxStub()
     renderScene(ctx, docWith(line), viewport, options)
     expect(calls.some(c => c.method === 'setLineDash')).toBe(false)
+  })
+
+  it('redraws the selected entity with the selection style', () => {
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, docWith(line), viewport, { ...options, selectedId: line.id })
+
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.selection] })
+    expect(calls).toContainEqual({ method: 'set:lineWidth', args: [2] })
+    // The highlight is wrapped in save/restore like the preview.
+    expect(calls[calls.length - 1]).toEqual({ method: 'restore', args: [] })
+  })
+
+  it('does not apply the selection style when nothing is selected', () => {
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, docWith(line), viewport, { ...options, selectedId: null })
+    expect(calls.some(c => c.method === 'set:strokeStyle' && c.args[0] === options.theme.selection)).toBe(false)
+  })
+
+  it('ignores a selectedId missing from the document', () => {
+    const { ctx, calls } = createCtxStub()
+    renderScene(ctx, docWith(line), viewport, { ...options, selectedId: 'missing' })
+    expect(calls.some(c => c.method === 'set:strokeStyle' && c.args[0] === options.theme.selection)).toBe(false)
   })
 })

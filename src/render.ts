@@ -3,13 +3,14 @@
  * @license   MIT
  */
 
-import type { DrawingDocument, Entity, LineEntity, CircleEntity, RectEntity } from './document.js'
+import type { DrawingDocument, Entity, EntityId, LineEntity, CircleEntity, RectEntity } from './document.js'
 import { visibleWorldRect, worldToScreen, type Viewport, type WorldRect } from './viewport.js'
 
 export interface RenderTheme {
   readonly gridMinor: string
   readonly gridMajor: string
   readonly ink: string
+  readonly selection: string
 }
 
 export interface RenderOptions {
@@ -18,6 +19,8 @@ export interface RenderOptions {
   readonly theme: RenderTheme
   /** In-progress tool geometry, drawn dashed on top of the scene. */
   readonly preview?: Entity
+  /** Entity to redraw with the selection style, if present in the document. */
+  readonly selectedId?: EntityId | null
 }
 
 /** Dash:gap ratio of 3:1 keeps the preview clearly distinct from committed ink. */
@@ -185,6 +188,15 @@ export function renderScene(
   for (const entity of doc.entities) {
     if (!intersects(entityBounds(entity), visible)) continue
     drawEntity(ctx, entity, v)
+  }
+
+  const selected = opts.selectedId ? doc.entities.find(entity => entity.id === opts.selectedId) : undefined
+  if (selected && intersects(entityBounds(selected), visible)) {
+    ctx.save()
+    ctx.strokeStyle = opts.theme.selection
+    ctx.lineWidth = 2
+    drawEntity(ctx, selected, v)
+    ctx.restore()
   }
 
   if (opts.preview) {

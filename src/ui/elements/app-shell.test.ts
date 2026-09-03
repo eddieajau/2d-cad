@@ -34,4 +34,18 @@ describe('app-shell', () => {
 
     el.remove()
   })
+
+  it('routes the select tool through the palette', () => {
+    const el = document.createElement('app-shell')
+    document.body.appendChild(el)
+
+    const palette = el.querySelector('tool-palette') as ToolPalette
+    palette.querySelector<HTMLButtonElement>('button[data-tool="select"]')!.click()
+
+    const canvas = el.querySelector('cad-canvas')!
+    expect(canvas.getTool()).toBe('select')
+    expect(palette.getAttribute('active')).toBe('select')
+
+    el.remove()
+  })
 })

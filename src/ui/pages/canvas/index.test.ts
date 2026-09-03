@@ -224,6 +224,124 @@ describe('cad-canvas', () => {
     })
   })
 
+  describe('selection', () => {
+    /** Canvas with a single horizontal line through world (0,0)–(40,0). */
+    function makeSelectScene(): CadCanvas {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setDocument(addEntity(createDocument(), { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }))
+      el.setTool('select')
+      return el
+    }
+
+    it('click selects the nearest entity, fires cad-canvas:selection, and highlights it', async () => {
+      const el = makeSelectScene()
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:selection', event => events.push(event as CustomEvent))
+
+      // World (20,0) sits on the line at screen (20,0).
+      pointer(el, 'pointerdown', 20, 0)
+
+      expect(el.getSelection()).toBe('e1')
+      expect(events).toHaveLength(1)
+      expect(events[0].detail).toEqual({ id: 'e1' })
+
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      const lastCall = renderSceneMock.mock.calls.at(-1)!
+      expect(lastCall[3].selectedId).toBe('e1')
+
+      el.remove()
+    })
+
+    it('clicking empty space clears the selection', () => {
+      const el = makeSelectScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:selection', event => events.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 20, 0)
+      pointer(el, 'pointerdown', 200, 200)
+
+      expect(el.getSelection()).toBeNull()
+      expect(events.map(event => event.detail.id)).toEqual(['e1', null])
+
+      el.remove()
+    })
+
+    it('Delete removes the selected entity from the document', () => {
+      const el = makeSelectScene()
+      const deletes: CustomEvent[] = []
+      el.addEventListener('cad-canvas:delete', event => deletes.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 20, 0)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }))
+
+      expect(el.getDocument().entities).toHaveLength(0)
+      expect(el.getSelection()).toBeNull()
+      expect(deletes).toHaveLength(1)
+      expect(deletes[0].detail.entity).toMatchObject({ id: 'e1' })
+      expect(deletes[0].detail.document).toBe(el.getDocument())
+
+      el.remove()
+    })
+
+    it('Backspace removes the selected entity too', () => {
+      const el = makeSelectScene()
+
+      pointer(el, 'pointerdown', 20, 0)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))
+
+      expect(el.getDocument().entities).toHaveLength(0)
+      el.remove()
+    })
+
+    it('Escape clears the selection without deleting', () => {
+      const el = makeSelectScene()
+      const deletes: CustomEvent[] = []
+      el.addEventListener('cad-canvas:delete', event => deletes.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 20, 0)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+      expect(el.getSelection()).toBeNull()
+      expect(el.getDocument().entities).toHaveLength(1)
+      expect(deletes).toHaveLength(0)
+
+      el.remove()
+    })
+
+    it('clears the selection when switching tools', () => {
+      const el = makeSelectScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:selection', event => events.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 20, 0)
+      el.setTool('line')
+
+      expect(el.getSelection()).toBeNull()
+      expect(events.map(event => event.detail.id)).toEqual(['e1', null])
+
+      el.remove()
+    })
+
+    it('the select tool never commits entities', () => {
+      const el = makeSelectScene()
+      const commits: CustomEvent[] = []
+      el.addEventListener('cad-canvas:commit', event => commits.push(event as CustomEvent))
+
+      pointer(el, 'pointerdown', 5, 5)
+      pointer(el, 'pointermove', 20, 20)
+      pointer(el, 'pointerup', 20, 20)
+
+      expect(el.getDocument().entities).toHaveLength(1)
+      expect(commits).toHaveLength(0)
+
+      el.remove()
+    })
+  })
+
   describe('setTool', () => {
     it('switches tools and commits the new geometry', () => {
       const el = makeCanvas()
