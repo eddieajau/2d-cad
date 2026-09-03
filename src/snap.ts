@@ -9,10 +9,11 @@ import type { WorldPoint } from './viewport.js'
 export type SnapMode = 'off' | 'grid'
 
 /**
- * Snap interval in world units when the viewport scale is unknown; matches
- * the rendered grid's minor interval at the default scale of 1.
+ * Snap interval in world units (1 unit = 1 mm) when the viewport scale is
+ * unknown: a 100 mm snap, the construction-friendly default. Callers pass
+ * the rendered grid's minor interval so snapped input lands on drawn lines.
  */
-export const DEFAULT_SNAP_GRID = 10
+export const DEFAULT_SNAP_GRID = 100
 
 /** Round a world point to the nearest multiple of `grid`. */
 export function snapToGrid(p: WorldPoint, grid: number): WorldPoint {

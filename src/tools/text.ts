@@ -7,8 +7,8 @@ import { createEntityId, type TextEntity } from '../document.js'
 import type { WorldPoint } from '../viewport.js'
 import type { Tool, ToolContext, ToolId, ToolPointerResult, ToolState } from './types.js'
 
-/** Default font size for new text, in world units. */
-export const TEXT_DEFAULT_SIZE = 12
+/** Default font size for new text, in world units (1 unit = 1 mm). */
+export const TEXT_DEFAULT_SIZE = 300
 
 export interface TextToolState extends ToolState {
   /** Anchor point fixed by the placing click; the canvas edits text here. */

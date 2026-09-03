@@ -59,9 +59,13 @@ function formatCoord(value: number): string {
   return String(Number(value.toPrecision(12)))
 }
 
-/** The measured length of a linear dimension, formatted for its label. */
+/**
+ * The measured length of a linear dimension, formatted in millimetres
+ * (1 world unit = 1 mm): sub-metre lengths stay in mm, otherwise metres.
+ */
 export function formatLength(length: number): string {
-  return formatCoord(length)
+  if (length < 1000) return `${formatCoord(length)} mm`
+  return `${formatCoord(length / 1000)} m`
 }
 
 function lineBounds(e: LineEntity): WorldRect {

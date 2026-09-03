@@ -36,8 +36,8 @@ describe('resolveSnapGrid', () => {
     expect(resolveSnapGrid('grid', 5)).toBe(5)
   })
 
-  it('defaults to the 10 world-unit grid', () => {
-    expect(resolveSnapGrid('grid')).toBe(10)
-    expect(DEFAULT_SNAP_GRID).toBe(10)
+  it('defaults to the 100 mm grid', () => {
+    expect(resolveSnapGrid('grid')).toBe(100)
+    expect(DEFAULT_SNAP_GRID).toBe(100)
   })
 })

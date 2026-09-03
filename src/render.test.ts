@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { addEntity, createDocument, type DrawingDocument, type Entity } from './document.js'
-import { drawDim, drawText, gridInterval, renderGrid, renderScene, type RenderOptions } from './render.js'
+import { drawDim, drawText, formatLength, gridInterval, renderGrid, renderScene, type RenderOptions } from './render.js'
 import type { Viewport } from './viewport.js'
 
 interface Call {
@@ -60,6 +60,19 @@ describe('gridInterval', () => {
   })
 })
 
+describe('formatLength', () => {
+  it('renders sub-metre lengths in millimetres', () => {
+    expect(formatLength(40)).toBe('40 mm')
+    expect(formatLength(999.5)).toBe('999.5 mm')
+  })
+
+  it('renders metre-scale lengths in metres, trimming trailing zeros', () => {
+    expect(formatLength(1000)).toBe('1 m')
+    expect(formatLength(12340)).toBe('12.34 m')
+    expect(formatLength(5000)).toBe('5 m')
+  })
+})
+
 describe('renderScene', () => {
   it('clears the canvas before drawing the scene', () => {
     const { ctx, calls } = createCtxStub()
@@ -85,7 +98,7 @@ describe('renderScene', () => {
 
     expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.ink] })
     expect(calls.some(c => c.method === 'fillText' && c.args[0] === 'note')).toBe(true)
-    expect(calls.some(c => c.method === 'fillText' && c.args[0] === '40')).toBe(true)
+    expect(calls.some(c => c.method === 'fillText' && c.args[0] === '40 mm')).toBe(true)
   })
 
   it('highlights a selected text entity with the selection fill', () => {
@@ -224,7 +237,7 @@ describe('drawDim', () => {
     const { ctx, calls } = createCtxStub()
     drawDim(ctx, dim, viewport)
     const label = calls.find(c => c.method === 'fillText')
-    expect(label).toEqual({ method: 'fillText', args: ['40', 20, expect.any(Number)] })
+    expect(label).toEqual({ method: 'fillText', args: ['40 mm', 20, expect.any(Number)] })
     expect(label!.args[2] as number).toBeLessThan(295) // above the dimension line (y=295)
   })
 
@@ -248,7 +261,7 @@ describe('drawDim', () => {
     drawDim(ctx, dim, zoomed)
     // The label still reads the world length 40, at the smaller screen size.
     const label = calls.find(c => c.method === 'fillText')
-    expect(label!.args[0]).toBe('40')
+    expect(label!.args[0]).toBe('40 mm')
     expect(calls).toContainEqual({ method: 'set:font', args: ['10px sans-serif'] })
   })
 })

@@ -29,7 +29,7 @@ describe('saveLocal / loadLocal', () => {
   it('round-trips a document through the versioned key', () => {
     saveLocal(makeDoc())
 
-    expect(localStorage.getItem('2d-cad:v1')).not.toBeNull()
+    expect(localStorage.getItem('2d-cad:v2')).not.toBeNull()
     expect(loadLocal()).toEqual(makeDoc())
   })
 
@@ -37,8 +37,14 @@ describe('saveLocal / loadLocal', () => {
     expect(loadLocal()).toBeNull()
   })
 
+  it('ignores a pre-mm v1 autosave rather than misreading it', () => {
+    localStorage.setItem('2d-cad:v1', JSON.stringify({ entities: [line] }))
+
+    expect(loadLocal()).toBeNull()
+  })
+
   it('rejects corrupt stored data with DocumentParseError', () => {
-    localStorage.setItem('2d-cad:v1', '{not json')
+    localStorage.setItem('2d-cad:v2', '{not json')
 
     expect(() => loadLocal()).toThrow(DocumentParseError)
   })

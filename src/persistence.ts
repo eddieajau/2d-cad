@@ -5,8 +5,12 @@
 
 import { deserializeDocument, serializeDocument, type DrawingDocument } from './document.js'
 
-/** Versioned key: bump to invalidate older stored shapes. */
-const STORAGE_KEY = '2d-cad:v1'
+/**
+ * Versioned key: bump to invalidate older stored shapes. v2 pins the world
+ * unit to millimetres; v1 sketches were unit-agnostic doodles and are not
+ * reloaded rather than misread.
+ */
+const STORAGE_KEY = '2d-cad:v2'
 
 /** Persist the document to localStorage under the versioned key. */
 export function saveLocal(doc: DrawingDocument): void {

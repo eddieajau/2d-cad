@@ -226,7 +226,7 @@ describe('app-shell', () => {
 
     it('restores the autosaved document on connect', () => {
       localStorage.setItem(
-        '2d-cad:v1',
+        '2d-cad:v2',
         JSON.stringify({ entities: [{ id: 'e1', type: 'circle', cx: 10, cy: 5, r: 3 }] })
       )
 
@@ -286,13 +286,13 @@ describe('app-shell', () => {
 
         pointer(canvas, 'pointerdown', 0, 0)
         pointer(canvas, 'pointerup', 40, 0)
-        expect(localStorage.getItem('2d-cad:v1')).toBeNull()
+        expect(localStorage.getItem('2d-cad:v2')).toBeNull()
 
         vi.advanceTimersByTime(999)
-        expect(localStorage.getItem('2d-cad:v1')).toBeNull()
+        expect(localStorage.getItem('2d-cad:v2')).toBeNull()
 
         vi.advanceTimersByTime(1)
-        const stored = localStorage.getItem('2d-cad:v1')
+        const stored = localStorage.getItem('2d-cad:v2')
         expect(stored).not.toBeNull()
         expect(JSON.parse(stored!).entities).toHaveLength(1)
 
