@@ -14,7 +14,8 @@ import {
   type EntityId,
 } from '../../../document.js'
 import { hitTest } from '../../../hit-test.js'
-import { renderScene } from '../../../render.js'
+import { gridInterval, renderScene } from '../../../render.js'
+import { resolveSnapGrid, snapToGrid, type SnapMode } from '../../../snap.js'
 import { CircleTool } from '../../../tools/circle.js'
 import { LineTool } from '../../../tools/line.js'
 import { RectTool } from '../../../tools/rect.js'
@@ -27,6 +28,7 @@ export interface CadCanvasEventMap {
   'cad-canvas:commit': CustomEvent<{ entity: Entity; document: DrawingDocument }>
   'cad-canvas:delete': CustomEvent<{ entity: Entity; document: DrawingDocument }>
   'cad-canvas:selection': CustomEvent<{ id: EntityId | null }>
+  'cad-canvas:snap': CustomEvent<{ mode: SnapMode }>
 }
 
 /** The available tool set. Tools are stateless, so instances are shared. */
@@ -56,6 +58,7 @@ export class CadCanvas extends HTMLElement {
   #tool: Tool = TOOLS.line
   #toolState: ToolState = this.#tool.init()
   #selectedId: EntityId | null = null
+  #snapMode: SnapMode = 'off'
   #dirty = false
   #rafId = 0
 
@@ -159,6 +162,11 @@ export class CadCanvas extends HTMLElement {
     return this.#selectedId
   }
 
+  /** Current snap mode; toggled with `G` and broadcast as `cad-canvas:snap`. */
+  getSnapMode(): SnapMode {
+    return this.#snapMode
+  }
+
   #draw(): void {
     const canvas = this.#canvas
     if (canvas === null) return
@@ -214,15 +222,20 @@ export class CadCanvas extends HTMLElement {
       canvas.releasePointerCapture(event.pointerId)
     }
     const rect = canvas.getBoundingClientRect()
-    const world = screenToWorld(this.#viewport, event.clientX - rect.left, event.clientY - rect.top)
+    const raw = screenToWorld(this.#viewport, event.clientX - rect.left, event.clientY - rect.top)
 
-    // In select mode a click picks the nearest entity; the tolerance is
-    // defined in screen px and scaled into world units for the hit test.
+    // In select mode a click picks the nearest entity; the hit test keeps
+    // the raw pointer so selection feels precise even when snapping is on.
     if (event.type === 'pointerdown' && this.#tool.id === 'select') {
       const tolerance = SELECT_TOLERANCE_PX / this.#viewport.scale
-      const hit = hitTest(this.#document, world, tolerance)
+      const hit = hitTest(this.#document, raw, tolerance)
       this.#setSelection(hit?.id ?? null)
     }
+
+    // Snapping applies after screenToWorld and before tools see the point;
+    // the grid matches the rendered minor grid so drawing lands on lines.
+    const grid = resolveSnapGrid(this.#snapMode, gridInterval(this.#viewport.scale).minor)
+    const world = grid === null ? raw : snapToGrid(raw, grid)
 
     // Route the gesture through the active tool first; the pointer event
     // still bubbles outward as `cad-canvas:pointer` for the mediator.
@@ -249,6 +262,11 @@ export class CadCanvas extends HTMLElement {
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key.toLowerCase() === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      this.#toggleSnap()
+      return
+    }
+
     if (this.#tool.id === 'select') {
       // Escape cancels an in-progress drag (zero document delta — the
       // document was never touched) or, when idle, clears the selection.
@@ -270,6 +288,17 @@ export class CadCanvas extends HTMLElement {
     if (next === undefined || next === this.#toolState) return
     this.#toolState = next
     this.invalidate()
+  }
+
+  #toggleSnap(): void {
+    this.#snapMode = this.#snapMode === 'off' ? 'grid' : 'off'
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:snap', {
+        bubbles: true,
+        composed: true,
+        detail: { mode: this.#snapMode },
+      })
+    )
   }
 
   #setSelection(id: EntityId | null): void {

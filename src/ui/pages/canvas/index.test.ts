@@ -11,7 +11,12 @@ import './index.js'
 import { CadCanvas } from './index.js'
 
 const { renderSceneMock } = vi.hoisted(() => ({ renderSceneMock: vi.fn() }))
-vi.mock('../../../render.js', () => ({ renderScene: renderSceneMock }))
+// Keep the real gridInterval — snap alignment tests rely on it — and mock
+// only the scene renderer (happy-dom's 2D context is null).
+vi.mock('../../../render.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../render.js')>()),
+  renderScene: renderSceneMock,
+}))
 
 beforeEach(() => {
   renderSceneMock.mockClear()
@@ -410,6 +415,71 @@ describe('cad-canvas', () => {
 
       expect(el.getDocument().entities).toEqual([{ id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }])
       // Pre-drag state had the entity selected — that survives the cancel.
+      expect(el.getSelection()).toBe('e1')
+
+      el.remove()
+    })
+  })
+
+  describe('grid snap', () => {
+    it('is off by default', () => {
+      const el = makeCanvas()
+      expect(el.getSnapMode()).toBe('off')
+      el.remove()
+    })
+
+    it('toggles via G and emits cad-canvas:snap', () => {
+      const el = makeCanvas()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:snap', event => events.push(event as CustomEvent))
+
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(el.getSnapMode()).toBe('grid')
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'G' }))
+      expect(el.getSnapMode()).toBe('off')
+
+      expect(events.map(event => event.detail.mode)).toEqual(['grid', 'off'])
+
+      el.remove()
+    })
+
+    it('snaps tool input to the rendered grid interval when on', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+
+      pointer(el, 'pointerdown', 12, 7)
+      pointer(el, 'pointermove', 26, 33)
+      pointer(el, 'pointerup', 26, 33)
+
+      // Rendered minor grid at scale 1 is 10 world units: screen (12,7) is
+      // world (12,-7), which lands on the grid at (10,-10).
+      expect(el.getDocument().entities[0]).toEqual({
+        id: expect.any(String),
+        type: 'line',
+        x1: 10,
+        y1: -10,
+        x2: 30,
+        y2: -30,
+      })
+
+      el.remove()
+    })
+
+    it('keeps hit testing on the raw pointer while snap is on', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      // Scale 10 → rendered grid 1 world unit, hit tolerance 0.8 world units.
+      el.setViewport({ offsetX: 500, offsetY: 500, scale: 10 })
+      el.setDocument(addEntity(createDocument(), { id: 'e1', type: 'line', x1: 3, y1: 0, x2: 7, y2: 0 }))
+      el.setTool('select')
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+
+      // Raw world (6.5, 0.6) is within tolerance of the segment; its snap
+      // (7, 1) is not — selection must still succeed.
+      pointer(el, 'pointerdown', 565, 494)
+
       expect(el.getSelection()).toBe('e1')
 
       el.remove()

@@ -4,16 +4,20 @@
  */
 
 import '../pages/canvas/index.js'
-import { createDocument, type DrawingDocument } from '../../document.js'
+import { createDocument, type DrawingDocument, type EntityId } from '../../document.js'
 import { canRedo, canUndo, commit, createHistory, current, redo, undo, type History } from '../../history.js'
+import type { SnapMode } from '../../snap.js'
 import type { ToolId } from '../../tools/types.js'
+import type { WorldPoint } from '../../viewport.js'
+import './status-bar.js'
 import './tool-palette.js'
 
 /**
  * Page mediator: palette selections (click or shortcut) switch the canvas
  * tool and are reflected back onto the palette's `active` attribute. The
  * shell also owns the snapshot history: every commit/delete event the canvas
- * emits is appended, and ctrl/cmd+z (shift+z, ctrl/cmd+y) walk it.
+ * emits is appended, and ctrl/cmd+z (shift+z, ctrl/cmd+y) walk it. Pointer,
+ * snap, and selection events are pushed down into the status bar readout.
  */
 export class AppShell extends HTMLElement {
   #abort: AbortController | null = null
@@ -24,6 +28,9 @@ export class AppShell extends HTMLElement {
     const canvas = this.querySelector('cad-canvas')
     if (canvas) this.#history = createHistory(canvas.getDocument())
     this.setupEventListeners()
+    // Seed the status bar with the canvas's current snap mode.
+    const bar = this.querySelector('status-bar')
+    if (canvas && bar) bar.setSnap(canvas.getSnapMode())
   }
 
   disconnectedCallback(): void {
@@ -39,6 +46,7 @@ export class AppShell extends HTMLElement {
       <main class="app-main">
         <cad-canvas></cad-canvas>
       </main>
+      <status-bar></status-bar>
     `
   }
 
@@ -50,6 +58,9 @@ export class AppShell extends HTMLElement {
     this.addEventListener('tool-palette:select', this.#onToolSelect, opts)
     this.addEventListener('cad-canvas:commit', this.#onDocChange, opts)
     this.addEventListener('cad-canvas:delete', this.#onDocChange, opts)
+    this.addEventListener('cad-canvas:pointer', this.#onPointerReadout, opts)
+    this.addEventListener('cad-canvas:snap', this.#onSnapChange, opts)
+    this.addEventListener('cad-canvas:selection', this.#onSelectionChange, opts)
     // Shortcuts live on the document so they fire wherever focus sits.
     document.addEventListener('keydown', this.#onShortcut, opts)
   }
@@ -68,6 +79,21 @@ export class AppShell extends HTMLElement {
   #onDocChange = (event: Event): void => {
     const doc = (event as CustomEvent<{ document: DrawingDocument }>).detail.document
     this.#history = commit(this.#history, doc)
+  }
+
+  #onPointerReadout = (event: Event): void => {
+    const world = (event as CustomEvent<{ world: WorldPoint }>).detail.world
+    this.querySelector('status-bar')?.setPosition(world)
+  }
+
+  #onSnapChange = (event: Event): void => {
+    const mode = (event as CustomEvent<{ mode: SnapMode }>).detail.mode
+    this.querySelector('status-bar')?.setSnap(mode)
+  }
+
+  #onSelectionChange = (event: Event): void => {
+    const { id } = (event as CustomEvent<{ id: EntityId | null }>).detail
+    this.querySelector('status-bar')?.setSelection(id === null ? null : { id })
   }
 
   #onShortcut = (event: KeyboardEvent): void => {

@@ -49,6 +49,39 @@ describe('app-shell', () => {
     el.remove()
   })
 
+  describe('status bar', () => {
+    it('pushes pointer, snap, and selection readouts into the status bar', () => {
+      const shell = document.createElement('app-shell')
+      document.body.appendChild(shell)
+      const canvas = shell.querySelector('cad-canvas')!
+      const inner = canvas.querySelector('canvas')!
+      inner.setPointerCapture = () => {}
+      inner.releasePointerCapture = () => {}
+      canvas.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      const bar = shell.querySelector('status-bar')!
+
+      // The canvas's snap mode is seeded on connect (default: off).
+      expect(bar.querySelector('.status-snap')?.textContent).toBe('Snap: off (G)')
+
+      // Pointer events flow through as world coordinates.
+      inner.dispatchEvent(new PointerEvent('pointermove', { clientX: 12, clientY: 7, bubbles: true }))
+      expect(bar.querySelector('.status-coords')?.textContent).toBe('x: 12.00, y: -7.00')
+
+      // The G toggle is reflected in the snap label.
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(bar.querySelector('.status-snap')?.textContent).toBe('Snap: on (G)')
+
+      // Commit a line, then select it.
+      inner.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, bubbles: true }))
+      inner.dispatchEvent(new PointerEvent('pointerup', { clientX: 40, clientY: 0, bubbles: true }))
+      canvas.setTool('select')
+      inner.dispatchEvent(new PointerEvent('pointerdown', { clientX: 20, clientY: 0, bubbles: true }))
+      expect(bar.querySelector('.status-selection')?.textContent).toMatch(/^Selected: e\d+$/)
+
+      shell.remove()
+    })
+  })
+
   describe('undo/redo', () => {
     function makeShell(): { shell: HTMLElement; canvas: CadCanvas } {
       const shell = document.createElement('app-shell')
