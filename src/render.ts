@@ -19,6 +19,8 @@ import { visibleWorldRect, worldToScreen, type Viewport, type WorldPoint, type W
 export interface RenderTheme {
   readonly gridMinor: string
   readonly gridMajor: string
+  readonly gridAxis: string
+  readonly gridLabel: string
   readonly ink: string
   readonly selection: string
 }
@@ -38,6 +40,12 @@ const PREVIEW_DASH = [9, 3]
 
 /** Smallest on-screen grid spacing, in pixels. */
 const MIN_GRID_PX = 8
+
+/**
+ * The outgoing finer grid fades over its last halving of on-screen spacing
+ * (MIN_GRID_PX/2 → MIN_GRID_PX) instead of popping away at the decade step.
+ */
+const FADE_RANGE_PX = MIN_GRID_PX / 2
 
 /** Screen-constant sizes for dimension furniture, in pixels. */
 const DIM_OVERSHOOT_PX = 4
@@ -253,12 +261,21 @@ export function renderGrid(ctx: CanvasRenderingContext2D, v: Viewport, opts: Ren
   const { width, height, theme } = opts
   const rect = visibleWorldRect(v, width, height)
   const { minor, major } = gridInterval(v.scale)
-  const majorStep = major / minor
 
-  const drawLineSet = (from: number, to: number, screenPos: (world: number) => number, isVertical: boolean): void => {
-    for (let k = Math.ceil(from / minor); k <= Math.floor(to / minor); k++) {
+  const drawLineSet = (
+    from: number,
+    to: number,
+    interval: number,
+    screenPos: (world: number) => number,
+    isVertical: boolean,
+    /** Skip lines that coincide with the next coarser grid (already drawn). */
+    skipMajor = false
+  ): void => {
+    const majorStep = interval * 10
+    for (let k = Math.ceil(from / interval); k <= Math.floor(to / interval); k++) {
       const isMajor = k % majorStep === 0
-      const pos = screenPos(k * minor)
+      if (skipMajor && isMajor) continue
+      const pos = screenPos(k * interval)
       ctx.strokeStyle = isMajor ? theme.gridMajor : theme.gridMinor
       ctx.beginPath()
       if (isVertical) {
@@ -272,12 +289,24 @@ export function renderGrid(ctx: CanvasRenderingContext2D, v: Viewport, opts: Ren
     }
   }
 
-  drawLineSet(rect.minX, rect.maxX, x => worldToScreen(v, x, 0).sx, true)
-  drawLineSet(rect.minY, rect.maxY, y => worldToScreen(v, 0, y).sy, false)
+  drawLineSet(rect.minX, rect.maxX, minor, x => worldToScreen(v, x, 0).sx, true)
+  drawLineSet(rect.minY, rect.maxY, minor, y => worldToScreen(v, 0, y).sy, false)
+
+  // Zoom-adaptive fading: the outgoing finer interval (minor/10) fades in as
+  // its on-screen spacing approaches MIN_GRID_PX, so stepping up a decade
+  // dissolves the old grid rather than popping it away.
+  const fine = minor / 10
+  const fade = Math.min(1, Math.max(0, (fine * v.scale - FADE_RANGE_PX) / FADE_RANGE_PX))
+  if (fade > 0) {
+    ctx.globalAlpha = fade
+    drawLineSet(rect.minX, rect.maxX, fine, x => worldToScreen(v, x, 0).sx, true, true)
+    drawLineSet(rect.minY, rect.maxY, fine, y => worldToScreen(v, 0, y).sy, false, true)
+    ctx.globalAlpha = 1
+  }
 
   // World axes, emphasised when in view.
   const origin = worldToScreen(v, 0, 0)
-  ctx.strokeStyle = theme.gridMajor
+  ctx.strokeStyle = theme.gridAxis
   ctx.lineWidth = 1.5
   ctx.beginPath()
   if (0 >= rect.minX && 0 <= rect.maxX) {
@@ -294,7 +323,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, v: Viewport, opts: Ren
   ctx.lineWidth = 1
 
   // Major-coordinate labels along the screen edges, always upright and legible.
-  ctx.fillStyle = theme.gridMajor
+  ctx.fillStyle = theme.gridLabel
   ctx.font = '10px sans-serif'
   for (let k = Math.ceil(rect.minX / major); k <= Math.floor(rect.maxX / major); k++) {
     const { sx } = worldToScreen(v, k * major, 0)

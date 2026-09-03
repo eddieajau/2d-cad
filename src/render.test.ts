@@ -39,7 +39,14 @@ const viewport: Viewport = { offsetX: 0, offsetY: 300, scale: 1 }
 const options: RenderOptions = {
   width: 400,
   height: 300,
-  theme: { gridMinor: '#a0a0a0', gridMajor: '#666666', ink: '#000000', selection: '#ff8800' },
+  theme: {
+    gridMinor: '#a0a0a0',
+    gridMajor: '#666666',
+    gridAxis: '#444444',
+    gridLabel: '#333333',
+    ink: '#000000',
+    selection: '#ff8800',
+  },
 }
 
 const line = { id: 'e1', type: 'line', x1: 10, y1: 10, x2: 50, y2: 30 } as const
@@ -146,6 +153,33 @@ describe('renderScene', () => {
     const labels = calls.filter(c => c.method === 'fillText').map(c => c.args[0])
     expect(labels).toContain('100')
     expect(labels).toContain('300')
+  })
+
+  it('styles minor, major, and axis grid marks distinctly', () => {
+    const { ctx, calls } = createCtxStub()
+    renderGrid(ctx, viewport, options)
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.gridMinor] })
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.gridMajor] })
+    expect(calls).toContainEqual({ method: 'set:strokeStyle', args: [options.theme.gridAxis] })
+    // Labels carry their own (legible) colour, not a faint grid tone.
+    expect(calls).toContainEqual({ method: 'set:fillStyle', args: [options.theme.gridLabel] })
+  })
+
+  it('fades the outgoing finer grid in near a decade step', () => {
+    // scale 7: minor = 10 (70 px), fine = 1 (7 px) → halfway through the fade.
+    const zoomed: Viewport = { offsetX: 0, offsetY: 0, scale: 7 }
+    const { ctx, calls } = createCtxStub()
+    renderGrid(ctx, zoomed, options)
+    const alphas = calls.filter(c => c.method === 'set:globalAlpha').map(c => c.args[0])
+    expect(alphas).toContain(0.75)
+    // Alpha is restored before the axes and labels are drawn.
+    expect(alphas[alphas.length - 1]).toBe(1)
+  })
+
+  it('skips the faded fine grid when well away from a decade step', () => {
+    const { ctx, calls } = createCtxStub()
+    renderGrid(ctx, viewport, options) // scale 1: fine spacing is 1 px
+    expect(calls.some(c => c.method === 'set:globalAlpha')).toBe(false)
   })
 
   it('draws the preview dashed on top of committed geometry', () => {

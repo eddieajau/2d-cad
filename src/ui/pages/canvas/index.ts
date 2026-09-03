@@ -46,8 +46,10 @@ const TOOLS: Record<ToolId, Tool> = {
 const MAX_DEVICE_PIXEL_RATIO = 2
 
 const DEFAULT_THEME = {
-  gridMinor: '#8a93a3',
-  gridMajor: '#66707f',
+  gridMinor: '#1f243014',
+  gridMajor: '#1f243033',
+  gridAxis: '#1f243066',
+  gridLabel: '#66707f',
   ink: '#1f2430',
   selection: '#b45309',
 }
@@ -189,6 +191,8 @@ export class CadCanvas extends HTMLElement {
       theme: {
         gridMinor: cssVar('--canvas-grid-minor', DEFAULT_THEME.gridMinor),
         gridMajor: cssVar('--canvas-grid-major', DEFAULT_THEME.gridMajor),
+        gridAxis: cssVar('--canvas-grid-axis', DEFAULT_THEME.gridAxis),
+        gridLabel: cssVar('--canvas-grid-label', DEFAULT_THEME.gridLabel),
         ink: cssVar('--canvas-ink', DEFAULT_THEME.ink),
         selection: cssVar('--canvas-selection', DEFAULT_THEME.selection),
       },
