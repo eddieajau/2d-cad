@@ -10,7 +10,7 @@ description: Use when the user types `/next` or says "do the next ticket".
    - Otherwise, take the first unchecked (`- [ ]`) ticket in the `Ticket order` list.
 2. Read the matching `.local/plan/NN-name.md` file.
 3. Implement it:
-   - Load any skills the ticket's axis calls for (e.g. `custom-elements`, `fastify-autoload`, `fastify-test`).
+   - Load any skills the ticket's axis calls for (e.g. `custom-elements`).
    - Follow the ticket's Tests and Acceptance criteria exactly.
    - Run `npm run verify` at the project root before stopping.
 4. Stop for review. Do not commit, and do not tick the README checkbox,
