@@ -6,7 +6,7 @@
 import type { DrawingDocument, Entity } from '../document.js'
 import type { Viewport, WorldPoint } from '../viewport.js'
 
-export type ToolId = 'line'
+export type ToolId = 'line' | 'rect' | 'circle'
 
 /** Snapshot of the drawing session handed to a tool with every event. */
 export interface ToolContext {

@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createDocument, addEntity } from '../../../document.js'
+import type { ToolId } from '../../../tools/types.js'
 import './index.js'
 import { CadCanvas } from './index.js'
 
@@ -219,6 +220,48 @@ describe('cad-canvas', () => {
 
       expect(el.getDocument().entities).toHaveLength(0)
 
+      el.remove()
+    })
+  })
+
+  describe('setTool', () => {
+    it('switches tools and commits the new geometry', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      expect(el.getTool()).toBe('line')
+
+      el.setTool('circle')
+      expect(el.getTool()).toBe('circle')
+
+      pointer(el, 'pointerdown', 2, 2)
+      pointer(el, 'pointermove', 5, 6)
+      pointer(el, 'pointerup', 5, 6)
+
+      expect(el.getDocument().entities).toEqual([{ id: expect.any(String), type: 'circle', cx: 2, cy: -2, r: 5 }])
+
+      el.remove()
+    })
+
+    it('resets an in-progress gesture when switching mid-drag', () => {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      pointer(el, 'pointerdown', 0, 0)
+      el.setTool('rect')
+      pointer(el, 'pointermove', 10, 10)
+      pointer(el, 'pointerup', 10, 10)
+
+      expect(el.getDocument().entities).toHaveLength(0)
+
+      el.remove()
+    })
+
+    it('ignores unknown tool ids', () => {
+      const el = makeCanvas()
+      el.setTool('bogus' as ToolId)
+      expect(el.getTool()).toBe('line')
       el.remove()
     })
   })

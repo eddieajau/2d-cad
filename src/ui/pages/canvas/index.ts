@@ -5,13 +5,22 @@
 
 import { addEntity, createDocument, type DrawingDocument, type Entity } from '../../../document.js'
 import { renderScene } from '../../../render.js'
+import { CircleTool } from '../../../tools/circle.js'
 import { LineTool } from '../../../tools/line.js'
-import type { Tool, ToolContext, ToolState } from '../../../tools/types.js'
+import { RectTool } from '../../../tools/rect.js'
+import type { Tool, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
 import { panBy, screenToWorld, zoomAt, type Viewport } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
   'cad-canvas:pointer': CustomEvent<{ world: { x: number; y: number }; buttons: number }>
   'cad-canvas:commit': CustomEvent<{ entity: Entity; document: DrawingDocument }>
+}
+
+/** The available tool set. Tools are stateless, so instances are shared. */
+const TOOLS: Record<ToolId, Tool> = {
+  line: new LineTool(),
+  rect: new RectTool(),
+  circle: new CircleTool(),
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2
@@ -29,7 +38,7 @@ export class CadCanvas extends HTMLElement {
   #abort: AbortController | null = null
   #resizeObserver: ResizeObserver | null = null
   #document: DrawingDocument = createDocument()
-  #tool: Tool = new LineTool()
+  #tool: Tool = TOOLS.line
   #toolState: ToolState = this.#tool.init()
   #dirty = false
   #rafId = 0
@@ -110,6 +119,19 @@ export class CadCanvas extends HTMLElement {
 
   getDocument(): DrawingDocument {
     return this.#document
+  }
+
+  /** Switch the active tool; any in-progress gesture is reset. */
+  setTool(id: ToolId): void {
+    const tool = TOOLS[id]
+    if (tool === undefined || tool === this.#tool) return
+    this.#tool = tool
+    this.#toolState = tool.init()
+    this.invalidate()
+  }
+
+  getTool(): ToolId {
+    return this.#tool.id
   }
 
   #draw(): void {
