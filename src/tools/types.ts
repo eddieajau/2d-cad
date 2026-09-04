@@ -6,7 +6,7 @@
 import type { DrawingDocument, Entity, EntityDraft, EntityId } from '../document.js'
 import type { Viewport, WorldPoint } from '../viewport.js'
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim' | 'wall'
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim' | 'wall' | 'offset'
 
 /** Snapshot of the drawing session handed to a tool with every event. */
 export interface ToolContext {
@@ -61,4 +61,18 @@ export interface Tool<S extends ToolState = ToolState> {
    * `null` signals a cancelled entry. Only the text tool implements it.
    */
   onTextCommit?(state: S, value: string | null): ToolPointerResult<S>
+  /**
+   * Optional numeric-entry hook for tools that take typed dx/dy input from
+   * the palette's context row (millimetres, negatives allowed). The canvas
+   * element feeds the committed values here on Enter. Only the offset tool
+   * implements it.
+   */
+  onOffsetCommit?(state: S, dx: number, dy: number): ToolPointerResult<S>
+  /**
+   * Optional live numeric-entry hook: called on every keystroke in the
+   * palette's dx/dy inputs with the parsed values (`null` when a field is
+   * empty or invalid, releasing the typed preview). Only the offset tool
+   * implements it.
+   */
+  onOffsetEntry?(state: S, dx: number | null, dy: number | null): S
 }

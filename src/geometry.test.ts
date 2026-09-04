@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { dimLine, dimOffset, textBounds, wallBand } from './geometry.js'
+import { anchorPoint, dimLine, dimOffset, nearestAnchor, textBounds, wallBand } from './geometry.js'
 import type { WallGeometry } from './geometry.js'
 
 const p = (x: number, y: number) => ({ x, y })
@@ -102,5 +102,81 @@ describe('textBounds', () => {
   it('is empty for empty text', () => {
     const bounds = textBounds({ id: 't1', type: 'text', x: 3, y: 4, text: '', size: 5 })
     expect(bounds.maxX).toBe(bounds.minX)
+  })
+})
+
+describe('anchorPoint', () => {
+  it('resolves rect corners from the normalised envelope', () => {
+    // Drawn with negative w/h; anchors come from the normalised envelope.
+    const rect = { id: 'r1', type: 'rect' as const, x: 2, y: 6, w: -10, h: -4 }
+    expect(anchorPoint(rect, 'nw')).toEqual(p(-8, 6))
+    expect(anchorPoint(rect, 'ne')).toEqual(p(2, 6))
+    expect(anchorPoint(rect, 'sw')).toEqual(p(-8, 2))
+    expect(anchorPoint(rect, 'se')).toEqual(p(2, 2))
+  })
+
+  it('resolves wall corners the same way as rect', () => {
+    expect(anchorPoint(wall('outer'), 'sw')).toEqual(p(0, 0))
+    expect(anchorPoint(wall('outer'), 'ne')).toEqual(p(10, 4))
+  })
+
+  it('resolves circle cardinal points', () => {
+    const circle = { id: 'c1', type: 'circle' as const, cx: 10, cy: 20, r: 5 }
+    expect(anchorPoint(circle, 'n')).toEqual(p(10, 25))
+    expect(anchorPoint(circle, 'e')).toEqual(p(15, 20))
+    expect(anchorPoint(circle, 's')).toEqual(p(10, 15))
+    expect(anchorPoint(circle, 'w')).toEqual(p(5, 20))
+  })
+
+  it('resolves line endpoints', () => {
+    const line = { id: 'l1', type: 'line' as const, x1: 1, y1: 2, x2: 8, y2: 9 }
+    expect(anchorPoint(line, 'start')).toEqual(p(1, 2))
+    expect(anchorPoint(line, 'end')).toEqual(p(8, 9))
+  })
+
+  it('is null for a corner that does not apply to the type', () => {
+    const rect = { id: 'r1', type: 'rect' as const, x: 0, y: 0, w: 1, h: 1 }
+    expect(anchorPoint(rect, 'n')).toBeNull()
+    expect(anchorPoint(rect, 'start')).toBeNull()
+
+    const line = { id: 'l1', type: 'line' as const, x1: 0, y1: 0, x2: 1, y2: 1 }
+    expect(anchorPoint(line, 'nw')).toBeNull()
+  })
+
+  it('is null for types without anchors', () => {
+    expect(anchorPoint({ id: 't1', type: 'text', x: 0, y: 0, text: 'a', size: 5 }, 'nw')).toBeNull()
+    expect(anchorPoint({ id: 'd1', type: 'dim', x1: 0, y1: 0, x2: 1, y2: 1, offset: 0 }, 'sw')).toBeNull()
+  })
+})
+
+describe('nearestAnchor', () => {
+  it('picks the nearest corner of a rect or wall', () => {
+    const envelope = {
+      id: 'w1',
+      type: 'wall' as const,
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 60,
+      thickness: 270,
+      alignment: 'outer' as const,
+    }
+    expect(nearestAnchor(envelope, p(90, 10))).toEqual({ corner: 'se', point: p(100, 0) })
+    expect(nearestAnchor(envelope, p(-3, 58))).toEqual({ corner: 'nw', point: p(0, 60) })
+  })
+
+  it('picks the nearest cardinal of a circle', () => {
+    const circle = { id: 'c1', type: 'circle' as const, cx: 0, cy: 0, r: 10 }
+    expect(nearestAnchor(circle, p(9, 1))).toEqual({ corner: 'e', point: p(10, 0) })
+    expect(nearestAnchor(circle, p(-1, -12))).toEqual({ corner: 's', point: p(0, -10) })
+  })
+
+  it('picks the nearest endpoint of a line', () => {
+    const line = { id: 'l1', type: 'line' as const, x1: 0, y1: 0, x2: 10, y2: 0 }
+    expect(nearestAnchor(line, p(8, 2))).toEqual({ corner: 'end', point: p(10, 0) })
+  })
+
+  it('is null for types without anchors', () => {
+    expect(nearestAnchor({ id: 't1', type: 'text', x: 0, y: 0, text: 'a', size: 5 }, p(0, 0))).toBeNull()
   })
 })

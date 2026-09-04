@@ -3,7 +3,7 @@
  * @license   MIT
  */
 
-import type { DimEntity, TextEntity, WallEntity } from './document.js'
+import type { DimEntity, Entity, EntityDraft, TextEntity, WallEntity } from './document.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -85,6 +85,99 @@ function envelopeRect(e: WallGeometry): WorldRect {
 /** Inset a rect inward by `t` on every face; inverted when `t` exceeds a span. */
 function insetRect(r: WorldRect, t: number): WorldRect {
   return { minX: r.minX + t, minY: r.minY + t, maxX: r.maxX - t, maxY: r.maxY - t }
+}
+
+/**
+ * Named reference points on an entity, used by the offset tool to anchor a
+ * typed dx/dy (and by ticket 19's reference positioning): rect/wall corners
+ * (of the normalised envelope, world y-up), circle cardinal points, and
+ * line endpoints.
+ */
+export type RectAnchor = 'nw' | 'ne' | 'sw' | 'se'
+export type CircleAnchor = 'n' | 'e' | 's' | 'w'
+export type LineAnchor = 'start' | 'end'
+export type EntityAnchor = RectAnchor | CircleAnchor | LineAnchor
+
+/** The anchor corners each entity type offers; text and dim offer none. */
+const ANCHORS: Record<Entity['type'], readonly EntityAnchor[]> = {
+  line: ['start', 'end'],
+  circle: ['n', 'e', 's', 'w'],
+  rect: ['nw', 'ne', 'sw', 'se'],
+  wall: ['nw', 'ne', 'sw', 'se'],
+  text: [],
+  dim: [],
+}
+
+/**
+ * The named anchor `corner` of `entity`, or null when the corner does not
+ * apply to the entity's type (text and dim have no anchors at all).
+ */
+export function anchorPoint(entity: EntityDraft, corner: EntityAnchor): WorldPoint | null {
+  switch (entity.type) {
+    case 'rect':
+    case 'wall': {
+      const minX = Math.min(entity.x, entity.x + entity.w)
+      const maxX = Math.max(entity.x, entity.x + entity.w)
+      const minY = Math.min(entity.y, entity.y + entity.h)
+      const maxY = Math.max(entity.y, entity.y + entity.h)
+      switch (corner) {
+        case 'nw':
+          return { x: minX, y: maxY }
+        case 'ne':
+          return { x: maxX, y: maxY }
+        case 'sw':
+          return { x: minX, y: minY }
+        case 'se':
+          return { x: maxX, y: minY }
+        default:
+          return null
+      }
+    }
+    case 'circle':
+      switch (corner) {
+        case 'n':
+          return { x: entity.cx, y: entity.cy + entity.r }
+        case 'e':
+          return { x: entity.cx + entity.r, y: entity.cy }
+        case 's':
+          return { x: entity.cx, y: entity.cy - entity.r }
+        case 'w':
+          return { x: entity.cx - entity.r, y: entity.cy }
+        default:
+          return null
+      }
+    case 'line':
+      switch (corner) {
+        case 'start':
+          return { x: entity.x1, y: entity.y1 }
+        case 'end':
+          return { x: entity.x2, y: entity.y2 }
+        default:
+          return null
+      }
+    default:
+      return null
+  }
+}
+
+/**
+ * The anchor of `entity` nearest to `p` — how the offset tool turns a click
+ * on a source entity into its reference corner. Null when the entity has no
+ * anchors (text, dim) and so cannot be offset.
+ */
+export function nearestAnchor(entity: EntityDraft, p: WorldPoint): { corner: EntityAnchor; point: WorldPoint } | null {
+  let best: { corner: EntityAnchor; point: WorldPoint } | null = null
+  let bestDistance = Infinity
+  for (const corner of ANCHORS[entity.type]) {
+    const point = anchorPoint(entity, corner)
+    if (point === null) continue
+    const distance = Math.hypot(p.x - point.x, p.y - point.y)
+    if (distance < bestDistance) {
+      best = { corner, point }
+      bestDistance = distance
+    }
+  }
+  return best
 }
 
 /**

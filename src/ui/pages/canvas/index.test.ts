@@ -683,6 +683,97 @@ describe('cad-canvas', () => {
     })
   })
 
+  describe('offset tool', () => {
+    /** Canvas with a single wall envelope at the world origin. */
+    function makeOffsetScene(): CadCanvas {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setDocument(
+        addEntity(createDocument(), {
+          id: 'src',
+          type: 'wall',
+          x: 0,
+          y: 0,
+          w: 12000,
+          h: 9000,
+          thickness: 270,
+          alignment: 'outer',
+        })
+      )
+      el.setTool('offset')
+      return el
+    }
+
+    it('a source click plus typed dx/dy commits a clone and selects it', () => {
+      const el = makeOffsetScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:commit', event => events.push(event as CustomEvent))
+
+      // A click inside the envelope picks the source (world (100, 100)).
+      pointer(el, 'pointerdown', 100, -100)
+      el.commitOffset(-6000, -1500)
+
+      const doc = el.getDocument()
+      expect(doc.entities).toHaveLength(2)
+      expect(doc.entities[1]).toMatchObject({
+        id: expect.any(String),
+        type: 'wall',
+        x: -6000,
+        y: -1500,
+        w: 12000,
+        h: 9000,
+        thickness: 270,
+        alignment: 'outer',
+      })
+      expect(el.getSelection()).toBe(doc.entities[1]!.id)
+      expect(events).toHaveLength(1)
+      expect(events[0].detail.document).toBe(doc)
+
+      el.remove()
+    })
+
+    it('commitOffset without a picked source is a no-op', () => {
+      const el = makeOffsetScene()
+      el.commitOffset(-6000, -1500)
+      expect(el.getDocument().entities).toHaveLength(1)
+      el.remove()
+    })
+
+    it('typed entry pins the preview; clearing it returns control to the pointer', async () => {
+      const el = makeOffsetScene()
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+      pointer(el, 'pointerdown', 100, -100)
+
+      el.setOffsetEntry(-6000, -1500)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      expect(renderSceneMock.mock.calls.at(-1)![3].preview).toMatchObject({ x: -6000, y: -1500 })
+
+      // Pointer movement no longer drags the pinned preview.
+      pointer(el, 'pointermove', 300, -300)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      expect(renderSceneMock.mock.calls.at(-1)![3].preview).toMatchObject({ x: -6000, y: -1500 })
+
+      // Clearing a field releases the pin and the ghost.
+      el.setOffsetEntry(-6000, null)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      expect(renderSceneMock.mock.calls.at(-1)![3].preview).toBeUndefined()
+
+      el.remove()
+    })
+
+    it('Escape after a source pick unwinds to idle', () => {
+      const el = makeOffsetScene()
+      pointer(el, 'pointerdown', 100, -100)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+      el.commitOffset(-6000, -1500)
+      expect(el.getDocument().entities).toHaveLength(1)
+      el.remove()
+    })
+  })
+
   describe('setTool', () => {
     it('switches tools and commits the new geometry', () => {
       const el = makeCanvas()

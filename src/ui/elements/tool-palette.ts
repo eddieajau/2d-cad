@@ -8,6 +8,12 @@ import type { ToolId } from '../../tools/types.js'
 export interface ToolPaletteEventMap {
   'tool-palette:select': CustomEvent<{ tool: ToolId }>
   'tool-palette:thickness': CustomEvent<{ thickness: number }>
+  /** Typed dx/dy (mm) committed on Enter from the offset tool's entry row. */
+  'tool-palette:offset': CustomEvent<{ dx: number; dy: number }>
+  /** Live dx/dy from the offset inputs; null when a field is empty or invalid. */
+  'tool-palette:offset-entry': CustomEvent<{ dx: number | null; dy: number | null }>
+  /** Entry cancelled with Escape in an offset input; the mediator refocuses the canvas. */
+  'tool-palette:escape': CustomEvent<Record<string, never>>
 }
 
 type ToolPaletteAttribute = 'tools' | 'active'
@@ -20,6 +26,7 @@ const TOOL_LABELS: Record<ToolId, string> = {
   text: 'Text',
   dim: 'Dim',
   wall: 'Wall',
+  offset: 'Offset',
 }
 
 // Decorative glyphs; the text label carries the accessible name.
@@ -33,9 +40,19 @@ const TOOL_ICONS: Record<ToolId, string> = {
   text: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v2.5M8 3v10M6 13h4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   dim: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 11V5m12 6V5M2 8h12M4 6.5 2 8l2 1.5M12 6.5 14 8l-2 1.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
   wall: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="6" width="6" height="4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
+  offset:
+    '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="6.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
 }
 
-const SHORTCUTS: Record<string, ToolId> = { l: 'line', r: 'rect', c: 'circle', t: 'text', d: 'dim', w: 'wall' }
+const SHORTCUTS: Record<string, ToolId> = {
+  l: 'line',
+  r: 'rect',
+  c: 'circle',
+  t: 'text',
+  d: 'dim',
+  w: 'wall',
+  o: 'offset',
+}
 
 /** Wall band thickness page state defaults, in millimetres. */
 const THICKNESS_DEFAULT = 270
@@ -108,7 +125,13 @@ export class ToolPalette extends HTMLElement {
       `<label class="wall-thickness" hidden>
          Thickness mm
          <input type="number" min="0" step="${THICKNESS_STEP}" value="${THICKNESS_DEFAULT}" />
-       </label>`
+       </label>` +
+      // The offset tool's exact dx/dy entry. Hidden unless the offset tool
+      // is active (syncDisplay); Enter commits both values, Escape cancels.
+      `<span class="offset-entry" hidden>
+         <label>dx mm <input class="offset-dx" type="number" step="1" /></label>
+         <label>dy mm <input class="offset-dy" type="number" step="1" /></label>
+       </span>`
   }
 
   setupEventListeners(): void {
@@ -118,7 +141,9 @@ export class ToolPalette extends HTMLElement {
 
     this.addEventListener('click', this.#onClick, opts)
     this.addEventListener('keydown', this.#onButtonKey, opts)
+    this.addEventListener('keydown', this.#onOffsetKey, opts)
     this.addEventListener('input', this.#onThicknessInput, opts)
+    this.addEventListener('input', this.#onOffsetInput, opts)
     // Shortcuts live here so palette buttons and keys emit the same event.
     document.addEventListener('keydown', this.#onShortcut, opts)
   }
@@ -135,6 +160,8 @@ export class ToolPalette extends HTMLElement {
     }
     const thickness = this.querySelector('.wall-thickness')
     if (thickness instanceof HTMLElement) thickness.hidden = this.#active !== 'wall'
+    const offsetRow = this.querySelector('.offset-entry')
+    if (offsetRow instanceof HTMLElement) offsetRow.hidden = this.#active !== 'offset'
   }
 
   #onClick = (event: MouseEvent): void => {
@@ -192,6 +219,69 @@ export class ToolPalette extends HTMLElement {
         detail: { tool },
       })
     )
+  }
+
+  // Enter commits both typed values; Escape backs out of entry to the
+  // preview (the canvas keeps the flow and unwinds it on its own Escape).
+  #onOffsetKey = (event: KeyboardEvent): void => {
+    const input = event.target
+    if (!(input instanceof HTMLInputElement) || !input.matches('.offset-dx, .offset-dy')) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      this.#commitOffset()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      this.#clearOffsetInputs()
+      // Clearing also releases the canvas tool's typed preview pin.
+      this.#emitOffsetEntry()
+      this.dispatchEvent(new CustomEvent('tool-palette:escape', { bubbles: true, composed: true }))
+    }
+  }
+
+  // Live entry: every keystroke pushes the parsed values down so the tool
+  // can pin its preview to the typed position.
+  #onOffsetInput = (event: Event): void => {
+    const input = event.target
+    if (!(input instanceof HTMLInputElement) || !input.matches('.offset-dx, .offset-dy')) return
+    this.#emitOffsetEntry()
+  }
+
+  #emitOffsetEntry(): void {
+    this.dispatchEvent(
+      new CustomEvent('tool-palette:offset-entry', {
+        bubbles: true,
+        composed: true,
+        detail: { dx: this.#offsetValue('.offset-dx'), dy: this.#offsetValue('.offset-dy') },
+      })
+    )
+  }
+
+  #commitOffset(): void {
+    const dx = this.#offsetValue('.offset-dx')
+    const dy = this.#offsetValue('.offset-dy')
+    // Both values are required; negatives are fine, garbage is not.
+    if (dx === null || dy === null) return
+    this.#clearOffsetInputs()
+    this.dispatchEvent(
+      new CustomEvent('tool-palette:offset', {
+        bubbles: true,
+        composed: true,
+        detail: { dx, dy },
+      })
+    )
+  }
+
+  #offsetValue(selector: string): number | null {
+    const input = this.querySelector<HTMLInputElement>(selector)
+    if (input === null) return null
+    const raw = input.value.trim()
+    if (raw === '') return null
+    const value = Number(raw)
+    return Number.isFinite(value) ? value : null
+  }
+
+  #clearOffsetInputs(): void {
+    for (const input of this.querySelectorAll<HTMLInputElement>('.offset-dx, .offset-dy')) input.value = ''
   }
 }
 

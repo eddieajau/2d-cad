@@ -97,7 +97,7 @@ export class AppShell extends HTMLElement {
         </div>
       </header>
       <div class="tool-strip">
-        <tool-palette tools="select,line,rect,circle,text,dim,wall" active="line"></tool-palette>
+        <tool-palette tools="select,line,rect,circle,text,dim,wall,offset" active="line"></tool-palette>
         <entity-colour></entity-colour>
         <layer-panel></layer-panel>
       </div>
@@ -118,6 +118,9 @@ export class AppShell extends HTMLElement {
     this.querySelector<HTMLInputElement>('.file-input')?.addEventListener('change', this.#onFileChange, opts)
     this.addEventListener('tool-palette:select', this.#onToolSelect, opts)
     this.addEventListener('tool-palette:thickness', this.#onThicknessChange, opts)
+    this.addEventListener('tool-palette:offset', this.#onOffsetCommit, opts)
+    this.addEventListener('tool-palette:offset-entry', this.#onOffsetEntry, opts)
+    this.addEventListener('tool-palette:escape', this.#onOffsetEscape, opts)
     this.addEventListener('layer-panel:change', this.#onLayerChange, opts)
     this.addEventListener('entity-colour:change', this.#onEntityColour, opts)
     this.addEventListener('cad-canvas:commit', this.#onDocChange, opts)
@@ -236,6 +239,23 @@ export class AppShell extends HTMLElement {
   #onThicknessChange = (event: Event): void => {
     const { thickness } = (event as CustomEvent<{ thickness: number }>).detail
     this.querySelector('cad-canvas')?.setWallThickness(thickness)
+  }
+
+  /** Typed dx/dy from the palette's offset row, pushed into the canvas tool. */
+  #onOffsetCommit = (event: Event): void => {
+    const { dx, dy } = (event as CustomEvent<{ dx: number; dy: number }>).detail
+    this.querySelector('cad-canvas')?.commitOffset(dx, dy)
+  }
+
+  /** Live dx/dy entry from the palette, pushed into the canvas tool. */
+  #onOffsetEntry = (event: Event): void => {
+    const { dx, dy } = (event as CustomEvent<{ dx: number | null; dy: number | null }>).detail
+    this.querySelector('cad-canvas')?.setOffsetEntry(dx, dy)
+  }
+
+  /** Offset entry cancelled — focus returns to the canvas so Escape unwinds the flow. */
+  #onOffsetEscape = (): void => {
+    this.querySelector('cad-canvas')?.focus()
   }
 
   /** Push the history head's layer table down into the panel. */

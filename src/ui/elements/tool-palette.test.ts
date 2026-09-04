@@ -177,4 +177,104 @@ describe('tool-palette', () => {
     expect(picked).toEqual(['wall'])
     el.remove()
   })
+
+  it('shows the dx/dy inputs only while the offset tool is active', () => {
+    const el = makePalette('line,offset', 'line')
+    const row = el.querySelector<HTMLElement>('.offset-entry')!
+    expect(row.hidden).toBe(true)
+
+    el.setAttribute('active', 'offset')
+    expect(row.hidden).toBe(false)
+    expect(el.querySelector<HTMLInputElement>('.offset-dx')).not.toBeNull()
+    expect(el.querySelector<HTMLInputElement>('.offset-dy')).not.toBeNull()
+    // The wrapped labels name the inputs for keyboard/AT users.
+    expect(row.textContent).toContain('dx mm')
+    expect(row.textContent).toContain('dy mm')
+    el.remove()
+  })
+
+  it('Enter dispatches tool-palette:offset with the typed values and clears the inputs', () => {
+    const el = makePalette('offset', 'offset')
+    const committed: { dx: number; dy: number }[] = []
+    el.addEventListener('tool-palette:offset', event =>
+      committed.push((event as CustomEvent<{ dx: number; dy: number }>).detail)
+    )
+
+    const dx = el.querySelector<HTMLInputElement>('.offset-dx')!
+    const dy = el.querySelector<HTMLInputElement>('.offset-dy')!
+    dx.value = '-6000'
+    dy.value = '-1500'
+    dx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    expect(committed).toEqual([{ dx: -6000, dy: -1500 }])
+    expect(dx.value).toBe('')
+    expect(dy.value).toBe('')
+    el.remove()
+  })
+
+  it('Enter with missing or invalid values commits nothing', () => {
+    const el = makePalette('offset', 'offset')
+    const committed: unknown[] = []
+    el.addEventListener('tool-palette:offset', event => committed.push((event as CustomEvent).detail))
+
+    const dx = el.querySelector<HTMLInputElement>('.offset-dx')!
+    const dy = el.querySelector<HTMLInputElement>('.offset-dy')!
+    for (const [a, b] of [
+      ['', ''],
+      ['-6000', ''],
+      ['-6000', 'abc'],
+    ] as const) {
+      dx.value = a
+      dy.value = b
+      dx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    }
+
+    expect(committed).toEqual([])
+    el.remove()
+  })
+
+  it('input in the dx/dy fields emits tool-palette:offset-entry with parsed values', () => {
+    const el = makePalette('offset', 'offset')
+    const entries: { dx: number | null; dy: number | null }[] = []
+    el.addEventListener('tool-palette:offset-entry', event =>
+      entries.push((event as CustomEvent<{ dx: number | null; dy: number | null }>).detail)
+    )
+
+    const dx = el.querySelector<HTMLInputElement>('.offset-dx')!
+    const dy = el.querySelector<HTMLInputElement>('.offset-dy')!
+    dx.value = '-6000'
+    dx.dispatchEvent(new Event('input', { bubbles: true }))
+    dy.value = '-1500'
+    dy.dispatchEvent(new Event('input', { bubbles: true }))
+    dy.value = 'abc'
+    dy.dispatchEvent(new Event('input', { bubbles: true }))
+
+    expect(entries).toEqual([
+      { dx: -6000, dy: null },
+      { dx: -6000, dy: -1500 },
+      { dx: -6000, dy: null },
+    ])
+    el.remove()
+  })
+
+  it('Escape in an offset input clears the inputs and dispatches tool-palette:escape', () => {
+    const el = makePalette('offset', 'offset')
+    const escapes: unknown[] = []
+    const entries: unknown[] = []
+    el.addEventListener('tool-palette:escape', () => escapes.push(null))
+    el.addEventListener('tool-palette:offset-entry', event => entries.push((event as CustomEvent).detail))
+
+    const dx = el.querySelector<HTMLInputElement>('.offset-dx')!
+    const dy = el.querySelector<HTMLInputElement>('.offset-dy')!
+    dx.value = '-6000'
+    dy.value = '-1500'
+    dx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    expect(escapes).toHaveLength(1)
+    // The cleared fields also release the canvas tool's typed preview pin.
+    expect(entries).toEqual([{ dx: null, dy: null }])
+    expect(dx.value).toBe('')
+    expect(dy.value).toBe('')
+    el.remove()
+  })
 })

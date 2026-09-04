@@ -20,6 +20,7 @@ import { resolveSnapGrid, snapToGrid, type SnapMode } from '../../../snap.js'
 import { CircleTool } from '../../../tools/circle.js'
 import { DimTool } from '../../../tools/dim.js'
 import { LineTool } from '../../../tools/line.js'
+import { OffsetTool } from '../../../tools/offset.js'
 import { RectTool } from '../../../tools/rect.js'
 import { SELECT_TOLERANCE_PX, SelectTool, type SelectToolState } from '../../../tools/select.js'
 import { TextTool, TEXT_DEFAULT_SIZE, type TextToolState } from '../../../tools/text.js'
@@ -46,6 +47,7 @@ const TOOLS: Record<ToolId, Tool> = {
   text: new TextTool(),
   dim: new DimTool(),
   wall: new WallTool(),
+  offset: new OffsetTool(),
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2
@@ -183,6 +185,32 @@ export class CadCanvas extends HTMLElement {
 
   getWallThickness(): number {
     return this.#wallThickness
+  }
+
+  /**
+   * Typed dx/dy (mm) from the palette's offset row, committed on Enter.
+   * The active tool must implement the numeric-entry hook; others ignore it.
+   */
+  commitOffset(dx: number, dy: number): void {
+    const result = this.#tool.onOffsetCommit?.(this.#toolState, dx, dy)
+    if (!result) return
+    this.#toolState = result.state
+    if (result.commit) this.#applyCommit(result.commit)
+    if (result.select !== undefined) this.#setSelection(result.select)
+    this.focus()
+    this.invalidate()
+  }
+
+  /**
+   * Live dx/dy from the palette's offset row (`null` when a field is empty
+   * or invalid): tools with the live-entry hook pin their preview to the
+   * typed values while both hold.
+   */
+  setOffsetEntry(dx: number | null, dy: number | null): void {
+    const next = this.#tool.onOffsetEntry?.(this.#toolState, dx, dy)
+    if (next === undefined || next === this.#toolState) return
+    this.#toolState = next
+    this.invalidate()
   }
 
   getSelection(): EntityId | null {
