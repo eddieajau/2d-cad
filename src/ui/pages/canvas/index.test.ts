@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createDocument, addEntity, updateLayer } from '../../../document.js'
+import { createDocument, addEntity, getEntity, updateLayer } from '../../../document.js'
 import { TEXT_DEFAULT_SIZE } from '../../../tools/text.js'
 import type { ToolId } from '../../../tools/types.js'
 import './index.js'
@@ -740,6 +740,22 @@ describe('cad-canvas', () => {
       el.remove()
     })
 
+    it('commitOffset with link attaches a reference to the source', () => {
+      const el = makeOffsetScene()
+      pointer(el, 'pointerdown', 100, -100)
+      el.commitOffset(-6000, -1500, true)
+
+      const clone = el.getDocument().entities[1]
+      expect(clone).toMatchObject({
+        type: 'wall',
+        x: -6000,
+        y: -1500,
+        ref: { id: 'src', corner: 'sw', dx: -6000, dy: -1500 },
+      })
+
+      el.remove()
+    })
+
     it('typed entry pins the preview; clearing it returns control to the pointer', async () => {
       const el = makeOffsetScene()
       const canvas = el.querySelector('canvas')!
@@ -770,6 +786,106 @@ describe('cad-canvas', () => {
 
       el.commitOffset(-6000, -1500)
       expect(el.getDocument().entities).toHaveLength(1)
+      el.remove()
+    })
+  })
+
+  describe('entity references', () => {
+    /**
+     * A parent rect at the world origin (0,0)–(500,300) and a child rect
+     * referenced to its se corner + (100, 0): the child sits at
+     * (500,0)–(600,100), its se anchor riding the parent's.
+     */
+    function makeRefScene(): CadCanvas {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setDocument(
+        addEntity(addEntity(createDocument(), { id: 'parent', type: 'rect', x: 0, y: 0, w: 500, h: 300 }), {
+          id: 'child',
+          type: 'rect',
+          x: 500,
+          y: 0,
+          w: 100,
+          h: 100,
+          ref: { id: 'parent', corner: 'se', dx: 100, dy: 0 },
+        })
+      )
+      el.setTool('select')
+      return el
+    }
+
+    it('moving the parent drags the child in the rendered world', async () => {
+      const el = makeRefScene()
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+
+      // Drag the parent 200 world units east.
+      pointer(el, 'pointerdown', 250, -150)
+      pointer(el, 'pointermove', 450, -150)
+      pointer(el, 'pointerup', 450, -150)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+
+      // Stored: the parent moved, the child's stored coords did not.
+      const doc = el.getDocument()
+      expect(getEntity(doc, 'parent')).toMatchObject({ x: 200, y: 0 })
+      expect(getEntity(doc, 'child')).toMatchObject({ x: 500, y: 0 })
+
+      // Rendered: the child followed, anchored at parent se (700, 0) + (100, 0).
+      const rendered = renderSceneMock.mock.calls.at(-1)![1]
+      expect(getEntity(rendered, 'child')).toMatchObject({ x: 700, y: 0 })
+
+      el.remove()
+    })
+
+    it('deleting the parent bakes the child at its rendered position', async () => {
+      const el = makeRefScene()
+      const canvas = el.querySelector('canvas')!
+      canvas.getContext = (() => ({}) as unknown) as typeof canvas.getContext
+
+      pointer(el, 'pointerdown', 250, -150)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }))
+      await new Promise(resolve => requestAnimationFrame(resolve))
+
+      const doc = el.getDocument()
+      expect(getEntity(doc, 'parent')).toBeUndefined()
+      // Frozen in place — where it rendered — with the ref unlinked.
+      expect(getEntity(doc, 'child')).toEqual({
+        id: 'child',
+        type: 'rect',
+        layerId: 'layer-0',
+        x: 500,
+        y: 0,
+        w: 100,
+        h: 100,
+      })
+      const rendered = renderSceneMock.mock.calls.at(-1)![1]
+      expect(getEntity(rendered, 'child')).toMatchObject({ x: 500, y: 0 })
+
+      el.remove()
+    })
+
+    it('moving the child updates its ref delta and leaves the parent untouched', () => {
+      const el = makeRefScene()
+
+      // The child occupies world (500,0)–(600,100); drag it 100 east.
+      pointer(el, 'pointerdown', 550, -50)
+      pointer(el, 'pointermove', 650, -50)
+      pointer(el, 'pointerup', 650, -50)
+
+      const doc = el.getDocument()
+      expect(getEntity(doc, 'parent')).toMatchObject({ x: 0, y: 0 })
+      expect(getEntity(doc, 'child')).toEqual({
+        id: 'child',
+        type: 'rect',
+        layerId: 'layer-0',
+        x: 600,
+        y: 0,
+        w: 100,
+        h: 100,
+        ref: { id: 'parent', corner: 'se', dx: 200, dy: 0 },
+      })
+
       el.remove()
     })
   })

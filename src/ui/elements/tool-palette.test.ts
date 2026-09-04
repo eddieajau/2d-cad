@@ -195,9 +195,9 @@ describe('tool-palette', () => {
 
   it('Enter dispatches tool-palette:offset with the typed values and clears the inputs', () => {
     const el = makePalette('offset', 'offset')
-    const committed: { dx: number; dy: number }[] = []
+    const committed: { dx: number; dy: number; link: boolean }[] = []
     el.addEventListener('tool-palette:offset', event =>
-      committed.push((event as CustomEvent<{ dx: number; dy: number }>).detail)
+      committed.push((event as CustomEvent<{ dx: number; dy: number; link: boolean }>).detail)
     )
 
     const dx = el.querySelector<HTMLInputElement>('.offset-dx')!
@@ -206,9 +206,34 @@ describe('tool-palette', () => {
     dy.value = '-1500'
     dx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 
-    expect(committed).toEqual([{ dx: -6000, dy: -1500 }])
+    expect(committed).toEqual([{ dx: -6000, dy: -1500, link: false }])
     expect(dx.value).toBe('')
     expect(dy.value).toBe('')
+    el.remove()
+  })
+
+  it('the Link toggle rides along in the commit detail', () => {
+    const el = makePalette('offset', 'offset')
+    const committed: { link: boolean }[] = []
+    el.addEventListener('tool-palette:offset', event =>
+      committed.push((event as CustomEvent<{ link: boolean }>).detail)
+    )
+
+    const link = el.querySelector<HTMLInputElement>('.offset-link input')!
+    expect(link.type).toBe('checkbox')
+    const dx = el.querySelector<HTMLInputElement>('.offset-dx')!
+    const dy = el.querySelector<HTMLInputElement>('.offset-dy')!
+
+    dx.value = '2000'
+    dy.value = '0'
+    dx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(committed[0]).toMatchObject({ link: false })
+
+    link.checked = true
+    dx.value = '2000'
+    dy.value = '0'
+    dx.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(committed[1]).toMatchObject({ link: true })
     el.remove()
   })
 

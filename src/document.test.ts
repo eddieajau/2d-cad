@@ -21,6 +21,8 @@ import {
   removeLayer,
   serializeDocument,
   setActiveLayer,
+  resolveDocument,
+  resolveEntity,
   translateEntity,
   updateEntity,
   updateLayer,
@@ -31,6 +33,7 @@ import {
   type TextEntity,
   type WallEntity,
 } from './document.js'
+import { anchorPoint } from './geometry.js'
 
 const line: LineEntity = {
   id: 'e1',
@@ -413,5 +416,200 @@ describe('layer operations', () => {
     expect(isEditable(doc, doc.entities[0]!)).toBe(false)
     expect(isEditable(doc, line)).toBe(true)
     expect(isEditable(doc, { ...line, layerId: 'ghost' })).toBe(false)
+  })
+})
+
+describe('entity references', () => {
+  /** A survey wall at the origin: anchors nw (0,9000) … se (12000,0). */
+  function docWithSurvey(): ReturnType<typeof createDocument> {
+    return addEntity(createDocument(), {
+      id: 'survey',
+      type: 'wall',
+      x: 0,
+      y: 0,
+      w: 12000,
+      h: 9000,
+      thickness: 270,
+      alignment: 'outer',
+    })
+  }
+
+  it('resolveEntity recomputes the position from the parent anchor plus the ref delta', () => {
+    const doc = addEntity(docWithSurvey(), {
+      id: 'hall',
+      type: 'rect',
+      x: 3000,
+      y: 4000,
+      w: 2000,
+      h: 1500,
+      ref: { id: 'survey', corner: 'nw', dx: 2000, dy: -1000 },
+    })
+    const hall = getEntity(doc, 'hall')!
+
+    // The hall's nw anchor lands at the survey's nw (0, 9000) + (2000,
+    // -1000) = (2000, 8000); its envelope origin sits 1500 below that.
+    expect(resolveEntity(doc, hall)).toEqual({ ...hall, x: 2000, y: 6500 })
+    expect(hall).toEqual({ ...hall, x: 3000, y: 4000 })
+  })
+
+  it('resolveEntity maps every rect corner of the parent', () => {
+    const doc = addEntity(createDocument(), {
+      id: 'parent',
+      type: 'rect',
+      x: 1000,
+      y: 1000,
+      w: 4000,
+      h: 2000,
+    })
+    // Parent anchors (world y-up): nw (1000,3000), ne (5000,3000),
+    // se (5000,1000), sw (1000,1000).
+    const corners = ['nw', 'ne', 'se', 'sw'] as const
+    for (const corner of corners) {
+      const child: RectEntity = {
+        id: 'child',
+        type: 'rect',
+        layerId: 'layer-0',
+        x: 0,
+        y: 0,
+        w: 600,
+        h: 200,
+        ref: { id: 'parent', corner, dx: 600, dy: 200 },
+      }
+      const parentCorner = anchorPoint(getEntity(doc, 'parent')!, corner)!
+      // The child's named anchor lands on the parent's anchor + (dx, dy).
+      expect(anchorPoint(resolveEntity(doc, child), corner)).toEqual({
+        x: parentCorner.x + 600,
+        y: parentCorner.y + 200,
+      })
+    }
+  })
+
+  it('resolveEntity maps circle cardinals and line endpoints of the parent', () => {
+    const circleDoc = addEntity(createDocument(), { id: 'parent', type: 'circle', cx: 0, cy: 0, r: 500 })
+    const circleChild: CircleEntity = {
+      id: 'child',
+      type: 'circle',
+      layerId: 'layer-0',
+      cx: 0,
+      cy: 0,
+      r: 50,
+      ref: { id: 'parent', corner: 'e', dx: 500, dy: 0 },
+    }
+    // The child's east point lands at the parent's east point (500, 0)
+    // plus (500, 0).
+    expect(resolveEntity(circleDoc, circleChild)).toMatchObject({ cx: 950, cy: 0 })
+
+    const lineDoc = addEntity(createDocument(), { id: 'parent', type: 'line', x1: 0, y1: 0, x2: 100, y2: 200 })
+    const lineChild: LineEntity = {
+      id: 'child',
+      type: 'line',
+      layerId: 'layer-0',
+      x1: 0,
+      y1: 0,
+      x2: 50,
+      y2: 50,
+      ref: { id: 'parent', corner: 'end', dx: 100, dy: 0 },
+    }
+    // The whole segment translates so its 'end' sits at the parent's end
+    // (100, 200) + (100, 0).
+    expect(resolveEntity(lineDoc, lineChild)).toEqual({ ...lineChild, x1: 150, y1: 150, x2: 200, y2: 200 })
+  })
+
+  it('a dangling parent falls back to the stored coordinates', () => {
+    const child: RectEntity = {
+      id: 'child',
+      type: 'rect',
+      layerId: 'layer-0',
+      x: 3000,
+      y: 4000,
+      w: 2000,
+      h: 1500,
+      ref: { id: 'ghost', corner: 'nw', dx: 0, dy: 0 },
+    }
+    const doc = addEntity(createDocument(), child)
+    expect(resolveEntity(doc, child)).toBe(child)
+  })
+
+  it('a self-referencing entity falls back to the stored coordinates', () => {
+    const child: RectEntity = {
+      id: 'child',
+      type: 'rect',
+      layerId: 'layer-0',
+      x: 3000,
+      y: 4000,
+      w: 2000,
+      h: 1500,
+      ref: { id: 'child', corner: 'nw', dx: 0, dy: 0 },
+    }
+    const doc = addEntity(createDocument(), child)
+    expect(resolveEntity(doc, child)).toBe(child)
+  })
+
+  it('resolveDocument applies refs a single level only', () => {
+    // Grandparent moves the parent; the child's ref points at the parent,
+    // whose *stored* coordinates never change — so the child does not move.
+    const doc = addEntity(
+      addEntity(addEntity(createDocument(), { id: 'gp', type: 'rect', x: 0, y: 0, w: 1000, h: 1000 }), {
+        id: 'parent',
+        type: 'rect',
+        x: 0,
+        y: 0,
+        w: 500,
+        h: 500,
+        ref: { id: 'gp', corner: 'se', dx: 0, dy: 0 },
+      }),
+      { id: 'child', type: 'rect', x: 0, y: 0, w: 100, h: 100, ref: { id: 'parent', corner: 'se', dx: 100, dy: 100 } }
+    )
+
+    const resolved = resolveDocument(doc)
+    // parent: its se anchor lands on gp's se (1000, 0); child: its se
+    // anchor lands on the parent's STORED se (500, 0) + (100, 100).
+    expect(getEntity(resolved, 'parent')).toMatchObject({ x: 500, y: 0 })
+    expect(getEntity(resolved, 'child')).toMatchObject({ x: 500, y: 100 })
+  })
+
+  it('removeEntity unlinks referencing entities at their resolved position', () => {
+    let doc = docWithSurvey()
+    doc = addEntity(doc, {
+      id: 'hall',
+      type: 'rect',
+      x: 3000,
+      y: 4000,
+      w: 2000,
+      h: 1500,
+      ref: { id: 'survey', corner: 'nw', dx: 2000, dy: -1000 },
+    })
+    // The survey moves after the ref was created: the hall renders 2,000 east.
+    doc = updateEntity(doc, 'survey', { x: 2000, y: 0 })
+
+    const next = removeEntity(doc, 'survey')
+    const hall = getEntity(next, 'hall')!
+    expect('ref' in hall && hall.ref).toBeUndefined()
+    // The baked position is where the hall rendered — it stays put. (Its
+    // nw anchor rides the survey's nw (2000, 9000) + (2000, -1000).)
+    expect(hall).toMatchObject({ x: 4000, y: 6500 })
+    expect(resolveEntity(next, hall)).toEqual(hall)
+  })
+
+  it('refs round-trip through serialization', () => {
+    const doc = addEntity(docWithSurvey(), {
+      id: 'hall',
+      type: 'rect',
+      x: 3000,
+      y: 4000,
+      w: 2000,
+      h: 1500,
+      ref: { id: 'survey', corner: 'nw', dx: 2000, dy: -1000 },
+    })
+    expect(deserializeDocument(serializeDocument(doc))).toEqual(doc)
+  })
+
+  it('a malformed ref is rejected on parse', () => {
+    const json = JSON.stringify({
+      entities: [
+        { id: 'e1', type: 'rect', x: 0, y: 0, w: 10, h: 10, ref: { id: 'parent', corner: 'middle', dx: 0, dy: 0 } },
+      ],
+    })
+    expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
   })
 })

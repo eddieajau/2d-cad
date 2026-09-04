@@ -9,11 +9,14 @@ import {
   getEntity,
   isEditable,
   removeEntity,
+  resolveDocument,
+  resolveEntity,
   updateEntity,
   type DrawingDocument,
   type Entity,
   type EntityId,
 } from '../../../document.js'
+import { anchorPoint } from '../../../geometry.js'
 import { hitTest } from '../../../hit-test.js'
 import { gridInterval, renderScene } from '../../../render.js'
 import { resolveSnapGrid, snapToGrid, type SnapMode } from '../../../snap.js'
@@ -189,10 +192,12 @@ export class CadCanvas extends HTMLElement {
 
   /**
    * Typed dx/dy (mm) from the palette's offset row, committed on Enter.
-   * The active tool must implement the numeric-entry hook; others ignore it.
+   * The active tool must implement the numeric-entry hook; others ignore
+   * it. `link` is the palette's Link toggle — the commit may then attach a
+   * positional reference instead of baking coordinates.
    */
-  commitOffset(dx: number, dy: number): void {
-    const result = this.#tool.onOffsetCommit?.(this.#toolState, dx, dy)
+  commitOffset(dx: number, dy: number, link = false): void {
+    const result = this.#tool.onOffsetCommit?.(this.#toolState, dx, dy, link)
     if (!result) return
     this.#toolState = result.state
     if (result.commit) this.#applyCommit(result.commit)
@@ -229,7 +234,8 @@ export class CadCanvas extends HTMLElement {
     if (ctx === null) return
     const style = getComputedStyle(this)
     const cssVar = (name: string, fallback: string): string => style.getPropertyValue(name).trim() || fallback
-    renderScene(ctx, this.#document, this.#viewport, {
+    // References apply here: the scene draws the resolved world.
+    renderScene(ctx, resolveDocument(this.#document), this.#viewport, {
       width: this.clientWidth,
       height: this.clientHeight,
       preview: this.#toolState.preview,
@@ -283,9 +289,12 @@ export class CadCanvas extends HTMLElement {
 
     // In select mode a click picks the nearest entity; the hit test keeps
     // the raw pointer so selection feels precise even when snapping is on.
+    // Everything downstream sees the resolved world: refs applied, so
+    // linked entities are picked where they render.
+    const resolved = resolveDocument(this.#document)
     if (event.type === 'pointerdown' && this.#tool.id === 'select') {
       const tolerance = SELECT_TOLERANCE_PX / this.#viewport.scale
-      const hit = hitTest(this.#document, raw, tolerance)
+      const hit = hitTest(resolved, raw, tolerance)
       this.#setSelection(hit?.id ?? null)
     }
 
@@ -296,7 +305,7 @@ export class CadCanvas extends HTMLElement {
 
     // Route the gesture through the active tool first; the pointer event
     // still bubbles outward as `cad-canvas:pointer` for the mediator.
-    const ctx: ToolContext = { doc: this.#document, viewport: this.#viewport, wallThickness: this.#wallThickness }
+    const ctx: ToolContext = { doc: resolved, viewport: this.#viewport, wallThickness: this.#wallThickness }
     if (event.type === 'pointerdown') {
       this.#toolState = this.#tool.onPointerDown(ctx, this.#toolState, world, event)
     } else if (event.type === 'pointermove') {
@@ -410,6 +419,22 @@ export class CadCanvas extends HTMLElement {
     this.invalidate()
   }
 
+  /**
+   * A tool commits coordinates from the resolved world; for a linked entity
+   * the same visual move is expressed through the reference — the committed
+   * coordinates land on the stored entity and dx/dy absorb the difference,
+   * so the link survives the edit.
+   */
+  #withMovedRef(stored: Entity | undefined, committed: Entity): Entity {
+    if (stored === undefined || !('ref' in stored) || stored.ref === undefined) return committed
+    if (!('ref' in committed)) return committed
+    const ref = stored.ref
+    const from = anchorPoint(resolveEntity(this.#document, stored), ref.corner)
+    const to = anchorPoint(committed, ref.corner)
+    if (from === null || to === null) return committed
+    return { ...committed, ref: { ...ref, dx: ref.dx + to.x - from.x, dy: ref.dy + to.y - from.y } }
+  }
+
   #applyCommit(commit: ToolCommit): void {
     if (commit.kind === 'add') {
       this.#document = addEntity(this.#document, commit.entity)
@@ -421,7 +446,7 @@ export class CadCanvas extends HTMLElement {
         this.#emitBlocked('locked')
         return
       }
-      this.#document = updateEntity(this.#document, commit.entity.id, commit.entity)
+      this.#document = updateEntity(this.#document, commit.entity.id, this.#withMovedRef(existing, commit.entity))
     }
     // The stored entity carries the applied layer for adds.
     const entity = getEntity(this.#document, commit.entity.id)!

@@ -3,7 +3,14 @@
  * @license   MIT
  */
 
-import type { DimEntity, Entity, EntityDraft, TextEntity, WallEntity } from './document.js'
+import {
+  type AnchorCorner,
+  type DimEntity,
+  type Entity,
+  type EntityDraft,
+  type TextEntity,
+  type WallEntity,
+} from './document.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -89,14 +96,12 @@ function insetRect(r: WorldRect, t: number): WorldRect {
 
 /**
  * Named reference points on an entity, used by the offset tool to anchor a
- * typed dx/dy (and by ticket 19's reference positioning): rect/wall corners
- * (of the normalised envelope, world y-up), circle cardinal points, and
- * line endpoints.
+ * typed dx/dy (and by reference positioning): rect/wall corners (of the
+ * normalised envelope, world y-up), circle cardinal points, and line
+ * endpoints. The names are the model's `AnchorCorner` union, shared with
+ * `EntityRef.corner`.
  */
-export type RectAnchor = 'nw' | 'ne' | 'sw' | 'se'
-export type CircleAnchor = 'n' | 'e' | 's' | 'w'
-export type LineAnchor = 'start' | 'end'
-export type EntityAnchor = RectAnchor | CircleAnchor | LineAnchor
+export type EntityAnchor = AnchorCorner
 
 /** The anchor corners each entity type offers; text and dim offer none. */
 const ANCHORS: Record<Entity['type'], readonly EntityAnchor[]> = {

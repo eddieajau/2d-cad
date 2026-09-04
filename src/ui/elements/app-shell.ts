@@ -241,10 +241,10 @@ export class AppShell extends HTMLElement {
     this.querySelector('cad-canvas')?.setWallThickness(thickness)
   }
 
-  /** Typed dx/dy from the palette's offset row, pushed into the canvas tool. */
+  /** Typed dx/dy (plus Link state) from the palette, pushed into the canvas tool. */
   #onOffsetCommit = (event: Event): void => {
-    const { dx, dy } = (event as CustomEvent<{ dx: number; dy: number }>).detail
-    this.querySelector('cad-canvas')?.commitOffset(dx, dy)
+    const { dx, dy, link } = (event as CustomEvent<{ dx: number; dy: number; link: boolean }>).detail
+    this.querySelector('cad-canvas')?.commitOffset(dx, dy, link)
   }
 
   /** Live dx/dy entry from the palette, pushed into the canvas tool. */
@@ -370,7 +370,13 @@ export class AppShell extends HTMLElement {
     const { id } = (event as CustomEvent<{ id: EntityId | null }>).detail
     const entity = id === null ? undefined : getEntity(current(this.#history), id)
     this.querySelector('status-bar')?.setSelection(
-      id === null ? null : { id, thickness: entity?.type === 'wall' ? entity.thickness : undefined }
+      id === null
+        ? null
+        : {
+            id,
+            thickness: entity?.type === 'wall' ? entity.thickness : undefined,
+            linked: entity !== undefined && 'ref' in entity && entity.ref !== undefined,
+          }
     )
     // Any new interaction supersedes a refusal hint.
     this.querySelector('status-bar')?.setHint(null)

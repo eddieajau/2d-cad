@@ -64,10 +64,12 @@ export interface Tool<S extends ToolState = ToolState> {
   /**
    * Optional numeric-entry hook for tools that take typed dx/dy input from
    * the palette's context row (millimetres, negatives allowed). The canvas
-   * element feeds the committed values here on Enter. Only the offset tool
-   * implements it.
+   * element feeds the committed values here on Enter; `link` is the
+   * palette's Link toggle — when on, the commit may attach a positional
+   * reference to the source instead of baking coordinates. Only the offset
+   * tool implements it.
    */
-  onOffsetCommit?(state: S, dx: number, dy: number): ToolPointerResult<S>
+  onOffsetCommit?(state: S, dx: number, dy: number, link?: boolean): ToolPointerResult<S>
   /**
    * Optional live numeric-entry hook: called on every keystroke in the
    * palette's dx/dy inputs with the parsed values (`null` when a field is

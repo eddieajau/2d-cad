@@ -9,7 +9,7 @@ export interface ToolPaletteEventMap {
   'tool-palette:select': CustomEvent<{ tool: ToolId }>
   'tool-palette:thickness': CustomEvent<{ thickness: number }>
   /** Typed dx/dy (mm) committed on Enter from the offset tool's entry row. */
-  'tool-palette:offset': CustomEvent<{ dx: number; dy: number }>
+  'tool-palette:offset': CustomEvent<{ dx: number; dy: number; link: boolean }>
   /** Live dx/dy from the offset inputs; null when a field is empty or invalid. */
   'tool-palette:offset-entry': CustomEvent<{ dx: number | null; dy: number | null }>
   /** Entry cancelled with Escape in an offset input; the mediator refocuses the canvas. */
@@ -128,10 +128,13 @@ export class ToolPalette extends HTMLElement {
        </label>` +
       // The offset tool's exact dx/dy entry. Hidden unless the offset tool
       // is active (syncDisplay); Enter commits both values, Escape cancels.
+      // The Link toggle attaches a positional reference to the source
+      // instead of baking coordinates.
       `<span class="offset-entry" hidden>
-         <label>dx mm <input class="offset-dx" type="number" step="1" /></label>
-         <label>dy mm <input class="offset-dy" type="number" step="1" /></label>
-       </span>`
+          <label>dx mm <input class="offset-dx" type="number" step="1" /></label>
+          <label>dy mm <input class="offset-dy" type="number" step="1" /></label>
+          <label class="offset-link"><input type="checkbox" /> Link</label>
+        </span>`
   }
 
   setupEventListeners(): void {
@@ -261,12 +264,13 @@ export class ToolPalette extends HTMLElement {
     const dy = this.#offsetValue('.offset-dy')
     // Both values are required; negatives are fine, garbage is not.
     if (dx === null || dy === null) return
+    const link = this.querySelector<HTMLInputElement>('.offset-link input')?.checked ?? false
     this.#clearOffsetInputs()
     this.dispatchEvent(
       new CustomEvent('tool-palette:offset', {
         bubbles: true,
         composed: true,
-        detail: { dx, dy },
+        detail: { dx, dy, link },
       })
     )
   }

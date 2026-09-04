@@ -123,6 +123,41 @@ describe('OffsetTool', () => {
     expect(result.commit).toMatchObject({ entity: { x: -6000, y: -1500 } })
   })
 
+  it('Link on commits a ref-carrying clone anchored to the source', () => {
+    const tool = new OffsetTool()
+    const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    const ghostId = state.source!.ghostId
+
+    const result = tool.onOffsetCommit(state, -6000, -1500, true)
+    expect(result.commit).toEqual({
+      kind: 'add',
+      entity: {
+        id: ghostId,
+        type: 'wall',
+        layerId: 'layer-0',
+        x: -6000,
+        y: -1500,
+        w: 12000,
+        h: 9000,
+        thickness: 270,
+        alignment: 'outer',
+        ref: { id: 'src', corner: 'sw', dx: -6000, dy: -1500 },
+      },
+    })
+    expect(result.select).toBe(ghostId)
+  })
+
+  it('Link off commits plain coordinates (the default)', () => {
+    const tool = new OffsetTool()
+    const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+
+    const result = tool.onOffsetCommit(state, -6000, -1500)
+    expect(result.commit).toEqual({
+      kind: 'add',
+      entity: expect.not.objectContaining({ ref: expect.anything() }),
+    })
+  })
+
   it('a zero-delta commit is allowed as an explicit in-place stamp', () => {
     const tool = new OffsetTool()
     const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)

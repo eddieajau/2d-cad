@@ -43,9 +43,9 @@ function offsetClone(source: OffsetSource, dx: number, dy: number): EntityDraft 
  * Exact entry commits on Enter with the dx/dy typed into the palette's
  * context row: while both fields hold values the preview pins to the typed
  * position and the pointer is ignored, so what you see is what Enter
- * commits. The commit is a real translated clone with no link to the source
- * (the linked variant is ticket 19); a zero delta commits an explicit
- * in-place stamp.
+ * commits. With the palette's Link toggle on, the commit carries a
+ * reference to the source's anchor; otherwise it is a plain translated
+ * clone. A zero delta commits an explicit in-place stamp.
  */
 export class OffsetTool implements Tool<OffsetToolState> {
   readonly id: ToolId = 'offset'
@@ -83,10 +83,15 @@ export class OffsetTool implements Tool<OffsetToolState> {
     return { state }
   }
 
-  onOffsetCommit(state: OffsetToolState, dx: number, dy: number): ToolPointerResult<OffsetToolState> {
+  onOffsetCommit(state: OffsetToolState, dx: number, dy: number, link = false): ToolPointerResult<OffsetToolState> {
     const { source } = state
     if (!source) return { state }
-    return { state: {}, commit: { kind: 'add', entity: offsetClone(source, dx, dy) }, select: source.ghostId }
+    const clone = offsetClone(source, dx, dy)
+    // Link on: the clone carries a reference to the source's picked anchor
+    // instead of baked coordinates, so moving the source drags the clone.
+    // The ref points at the source's stored coordinates (refs never chain).
+    const entity = link ? { ...clone, ref: { id: source.entity.id, corner: source.anchor.corner, dx, dy } } : clone
+    return { state: {}, commit: { kind: 'add', entity }, select: source.ghostId }
   }
 
   onOffsetEntry(state: OffsetToolState, dx: number | null, dy: number | null): OffsetToolState {

@@ -47,6 +47,15 @@ describe('status-bar', () => {
     el.remove()
   })
 
+  it('setSelection marks linked entities and walls', () => {
+    const el = makeBar()
+    el.setSelection({ id: 'e4', thickness: 270, linked: true })
+    expect(el.querySelector('.status-selection')?.textContent).toBe('Selected: e4 — wall 270.00 mm — ↗ linked')
+    el.setSelection({ id: 'e5', linked: true })
+    expect(el.querySelector('.status-selection')?.textContent).toBe('Selected: e5 — ↗ linked')
+    el.remove()
+  })
+
   it('setHint shows and clears a transient refusal message', () => {
     const el = makeBar()
     el.setHint('That layer is locked')

@@ -3,6 +3,8 @@
  * @license   MIT
  */
 
+import { anchorPoint } from './geometry.js'
+
 export type EntityId = string
 
 /** The layer every document is seeded with; legacy files load onto it. */
@@ -33,6 +35,8 @@ export interface LineEntity {
   y2: number
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
+  /** Optional positional reference; the ref's parent anchor wins on resolve. */
+  ref?: EntityRef
 }
 
 export interface CircleEntity {
@@ -44,6 +48,8 @@ export interface CircleEntity {
   r: number
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
+  /** Optional positional reference; the ref's parent anchor wins on resolve. */
+  ref?: EntityRef
 }
 
 export interface RectEntity {
@@ -56,6 +62,8 @@ export interface RectEntity {
   h: number
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
+  /** Optional positional reference; the ref's parent anchor wins on resolve. */
+  ref?: EntityRef
 }
 
 export interface TextEntity {
@@ -95,6 +103,28 @@ export interface DimEntity {
  */
 export type WallAlignment = 'outer' | 'centre' | 'inner'
 
+/**
+ * The named anchor a reference hangs off — a rect/wall corner, a circle
+ * cardinal point, or a line endpoint. The names are exactly what
+ * `anchorPoint` (geometry.ts) resolves, so one vocabulary serves drawing
+ * anchors and reference positioning.
+ */
+export type AnchorCorner = 'nw' | 'ne' | 'se' | 'sw' | 'n' | 'e' | 's' | 'w' | 'start' | 'end'
+
+const ANCHOR_CORNERS: readonly AnchorCorner[] = ['nw', 'ne', 'se', 'sw', 'n', 'e', 's', 'w', 'start', 'end']
+
+/**
+ * A positional reference: this entity sits at the parent's `corner` anchor
+ * plus (dx, dy), wherever the parent goes. One parent per entity — refs
+ * never chain (see `resolveEntity`).
+ */
+export interface EntityRef {
+  id: EntityId
+  corner: AnchorCorner
+  dx: number
+  dy: number
+}
+
 export interface WallEntity {
   id: EntityId
   type: 'wall'
@@ -108,6 +138,8 @@ export interface WallEntity {
   alignment: WallAlignment
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
+  /** Optional positional reference; the ref's parent anchor wins on resolve. */
+  ref?: EntityRef
 }
 
 export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity | WallEntity
@@ -199,8 +231,49 @@ export function translateEntity(entity: Entity, dx: number, dy: number): Entity 
   }
 }
 
+/**
+ * The entity as it should be seen: when it carries a resolvable reference,
+ * its position is recomputed from the parent's stored anchor plus the ref
+ * delta; otherwise it is returned unchanged. Concrete coordinates stay on
+ * the entity — they are the fallback when the parent is dangling (deleted),
+ * so a deleted boundary leaves the building where it was, never NaN.
+ *
+ * Single level by design: the parent's *stored* coordinates are used, so a
+ * ref pointing at a referenced entity does not chain resolutions.
+ */
+export function resolveEntity(doc: DrawingDocument, entity: Entity): Entity {
+  const ref = 'ref' in entity ? entity.ref : undefined
+  if (ref === undefined || ref.id === entity.id) return entity
+  const parent = getEntity(doc, ref.id)
+  if (parent === undefined) return entity
+  const target = anchorPoint(parent, ref.corner)
+  const current = anchorPoint(entity, ref.corner)
+  if (target === null || current === null) return entity
+  return translateEntity(entity, target.x + ref.dx - current.x, target.y + ref.dy - current.y)
+}
+
+/**
+ * Every entity resolved against the stored document — the single pure
+ * function per draw/hit-test/tool-input pass that applies references. Refs
+ * never chain: each entity resolves against stored coordinates only.
+ */
+export function resolveDocument(doc: DrawingDocument): DrawingDocument {
+  return { ...doc, entities: doc.entities.map(entity => resolveEntity(doc, entity)) }
+}
+
 export function removeEntity(doc: DrawingDocument, id: EntityId): DrawingDocument {
-  return { ...doc, entities: doc.entities.filter(entity => entity.id !== id) }
+  return {
+    ...doc,
+    // Entities referencing the removed one are unlinked: their last
+    // resolved position is baked into the stored coordinates, so deleting
+    // a boundary freezes the things that referenced it in place.
+    entities: doc.entities
+      .filter(entity => entity.id !== id)
+      .map(entity => {
+        if (!('ref' in entity) || entity.ref?.id !== id) return entity
+        return { ...resolveEntity(doc, entity), ref: undefined }
+      }),
+  }
 }
 
 /**
@@ -277,6 +350,23 @@ function isFiniteRecord(value: object, keys: readonly string[]): boolean {
   })
 }
 
+function parseRef(value: unknown): EntityRef {
+  if (typeof value !== 'object' || value === null) {
+    throw new DocumentParseError('Entity "ref" must be an object')
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== 'string') {
+    throw new DocumentParseError('Entity "ref" must have a string "id"')
+  }
+  if (typeof record.corner !== 'string' || !ANCHOR_CORNERS.includes(record.corner as AnchorCorner)) {
+    throw new DocumentParseError('Entity "ref" must have a valid anchor "corner"')
+  }
+  if (!isFiniteRecord(record, ['dx', 'dy'])) {
+    throw new DocumentParseError('Entity "ref" has missing or non-finite dx/dy')
+  }
+  return value as EntityRef
+}
+
 function parseEntity(value: unknown): EntityDraft {
   if (typeof value !== 'object' || value === null) {
     throw new DocumentParseError('Entity must be an object')
@@ -291,6 +381,7 @@ function parseEntity(value: unknown): EntityDraft {
   if (record.colour !== undefined && typeof record.colour !== 'string') {
     throw new DocumentParseError('Entity "colour" must be a string')
   }
+  if (record.ref !== undefined) parseRef(record.ref)
   switch (record.type) {
     case 'line':
       if (!isFiniteRecord(record, ['x1', 'y1', 'x2', 'y2'])) {
