@@ -43,14 +43,26 @@ function pointer(canvas: CadCanvas, type: string, clientX: number, clientY: numb
 }
 
 describe('app-shell', () => {
-  it('renders the brand, the tool palette, and the canvas page', () => {
+  it('renders the brand, the side-panel sections, and the canvas page', () => {
     const el = document.createElement('app-shell')
     document.body.appendChild(el)
 
     expect(el.querySelector('.brand')?.textContent).toBe('2D CAD')
-    expect(el.querySelector('tool-palette')).not.toBeNull()
-    expect(el.querySelector('layer-panel')).not.toBeNull()
     expect(el.querySelector('cad-canvas')).toBeInstanceOf(CadCanvas)
+
+    // The panel column is a named complementary landmark with a section per
+    // heading, and every control panel stacks inside it.
+    const panel = el.querySelector<HTMLElement>('.side-panel')!
+    expect(panel.getAttribute('role')).toBe('complementary')
+    expect(panel.getAttribute('aria-label')).toBe('Panels')
+    expect([...panel.querySelectorAll('h2')].map(heading => heading.textContent)).toEqual(['Tools', 'Colour', 'Layers'])
+    expect(panel.querySelector('tool-palette')).not.toBeNull()
+    expect(panel.querySelector('entity-colour')).not.toBeNull()
+    expect(panel.querySelector('layer-panel')).not.toBeNull()
+
+    // The canvas page sits outside the panel column.
+    expect(panel.querySelector('cad-canvas')).toBeNull()
+    expect(el.querySelector('.app-main')?.contains(el.querySelector('cad-canvas'))).toBe(true)
 
     el.remove()
   })

@@ -86,16 +86,88 @@ body {
   outline-offset: 2px;
 }
 
+/* Shell grid: header and status bar span both columns; the side panel is a
+   fixed-width column beside the canvas. The canvas column is minmax(0, 1fr)
+   so the drawing surface sizes from the grid, and cad-canvas's
+   ResizeObserver keeps the backing store in step. */
+app-shell {
+  display: grid;
+  height: 100vh;
+  grid-template:
+    'header header' auto
+    'canvas side' minmax(0, 1fr)
+    'status status' auto
+    / minmax(0, 1fr) 280px;
+}
+
+.topnav {
+  grid-area: header;
+}
+
 .app-main {
-  flex: 1;
+  grid-area: canvas;
   min-height: 0;
   padding: 0;
 }
 
-app-shell {
+.side-panel {
+  grid-area: side;
+}
+
+status-bar {
+  grid-area: status;
+}
+
+/* Side panel column: fixed width, vertical scroll, named sections. Headings
+   use --muted (≥ 4.5:1 against --surface in both themes); section dividers
+   use --border like every other structural border. */
+.side-panel {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  gap: 16px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.side-panel .panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.side-panel h2 {
+  margin: 0;
+  padding-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Narrow viewports: the panel overlays the canvas instead of squeezing it —
+   panel and canvas share the "canvas" cell, the panel stacked on top. */
+@media (max-width: 720px) {
+  app-shell {
+    grid-template:
+      'header' auto
+      'canvas' minmax(0, 1fr)
+      'status' auto
+      / minmax(0, 1fr);
+  }
+
+  .side-panel {
+    grid-area: canvas;
+    justify-self: end;
+    width: 280px;
+    z-index: 10;
+    border: 1px solid var(--border);
+    box-shadow: -4px 0 12px rgb(0 0 0 / 0.15);
+  }
 }
 
 cad-canvas {
@@ -136,13 +208,13 @@ cad-canvas canvas {
   background: var(--surface);
 }
 
+/* Palette lives in the side panel's Tools section; buttons wrap across the
+   column width. The section frame supplies the surface, so no strip chrome. */
 tool-palette {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
 
 tool-palette button {
@@ -176,14 +248,11 @@ tool-palette button:focus-visible {
 }
 
 /* Wall thickness setting: the label text carries --text (≥ 4.5:1) and the
-    input's border uses --muted (≥ 3:1) like every other strip control. */
+    input's border uses --muted (≥ 3:1) like every other panel control. */
 tool-palette .wall-thickness {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: 8px;
-  padding-left: 12px;
-  border-left: 1px solid var(--border);
   color: var(--text);
 }
 
@@ -202,36 +271,28 @@ tool-palette .wall-thickness input:focus-visible {
   outline-offset: 2px;
 }
 
-/* Tool strip: palette on the left, layer panel pushed to the right. */
-.tool-strip {
-  display: flex;
-  align-items: stretch;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.tool-strip tool-palette {
-  border-bottom: none;
-  flex: 1;
-}
-
 /* Layer panel: text/controls match the palette contrast rules (text ≥ 4.5:1,
-    control borders ≥ 3:1 against --surface) in both themes. */
+    control borders ≥ 3:1 against --surface) in both themes. Rows stack in
+    the side panel column. */
 layer-panel {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  padding: 4px 12px;
-  border-left: 1px solid var(--border);
 }
 
 layer-panel .layer-rows {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+layer-panel .layer-add {
+  align-self: flex-start;
 }
 
 layer-panel .layer-row {
@@ -295,13 +356,11 @@ entity-colour input.entity-colour-swatch:focus-visible {
   outline-offset: 2px;
 }
 
-/* Colour controls sit in the tool strip, matching the panel's framing. */
+/* Colour controls sit in the side panel's Colour section. */
 entity-colour {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 12px;
-  border-left: 1px solid var(--border);
 }
 
 entity-colour button.entity-colour-clear {

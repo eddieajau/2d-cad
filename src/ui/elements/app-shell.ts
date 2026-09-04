@@ -96,14 +96,23 @@ export class AppShell extends HTMLElement {
           <input class="file-input" type="file" accept="application/json,.json" hidden />
         </div>
       </header>
-      <div class="tool-strip">
-        <tool-palette tools="select,line,rect,circle,text,dim,wall,offset" active="line"></tool-palette>
-        <entity-colour></entity-colour>
-        <layer-panel></layer-panel>
-      </div>
       <main class="app-main">
         <cad-canvas></cad-canvas>
       </main>
+      <aside class="side-panel" role="complementary" aria-label="Panels">
+        <section class="panel-section">
+          <h2>Tools</h2>
+          <tool-palette tools="select,line,rect,circle,text,dim,wall,offset" active="line"></tool-palette>
+        </section>
+        <section class="panel-section">
+          <h2>Colour</h2>
+          <entity-colour></entity-colour>
+        </section>
+        <section class="panel-section">
+          <h2>Layers</h2>
+          <layer-panel></layer-panel>
+        </section>
+      </aside>
       <status-bar></status-bar>
     `
   }
