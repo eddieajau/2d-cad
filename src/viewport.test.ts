@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { panBy, screenToWorld, visibleWorldRect, worldToScreen, zoomAt, type Viewport } from './viewport.js'
+import { fitExtents, panBy, screenToWorld, visibleWorldRect, worldToScreen, zoomAt, type Viewport } from './viewport.js'
 
 const viewport: Viewport = { offsetX: 100, offsetY: 200, scale: 2 }
 
@@ -65,5 +65,46 @@ describe('visibleWorldRect', () => {
     expect(rect.minY).toBeCloseTo(-50)
     expect(rect.maxX).toBeCloseTo(150)
     expect(rect.maxY).toBeCloseTo(100)
+  })
+})
+
+describe('fitExtents', () => {
+  const margin = 40
+
+  it('scales the bounds to fit with the margin respected, aspect preserved', () => {
+    // Width governs: min(320/100, 220/50) = 3.2 — vertical margins gain slack.
+    const fitted = fitExtents(viewport, { minX: 0, minY: 0, maxX: 100, maxY: 50 }, 400, 300, margin)
+    expect(fitted.scale).toBeCloseTo(3.2)
+    // The left edge sits exactly at the margin; the right mirrors it.
+    expect(worldToScreen(fitted, 0, 0).sx).toBeCloseTo(margin)
+    expect(worldToScreen(fitted, 100, 0).sx).toBeCloseTo(400 - margin)
+  })
+
+  it('lets the height govern for tall bounds', () => {
+    const fitted = fitExtents(viewport, { minX: 0, minY: 0, maxX: 50, maxY: 200 }, 400, 300, margin)
+    expect(fitted.scale).toBeCloseTo(1.1) // min(320/50, 220/200)
+    expect(worldToScreen(fitted, 0, 200).sy).toBeCloseTo(margin)
+    expect(worldToScreen(fitted, 0, 0).sy).toBeCloseTo(300 - margin)
+  })
+
+  it('centres the bounds on the screen', () => {
+    const fitted = fitExtents(viewport, { minX: 10, minY: 20, maxX: 110, maxY: 70 }, 400, 300, margin)
+    expect(worldToScreen(fitted, 60, 45)).toEqual({ sx: 200, sy: 150 })
+  })
+
+  it('returns the default first-sight view for empty bounds', () => {
+    expect(fitExtents(viewport, null, 400, 300, margin)).toEqual({ offsetX: 200, offsetY: 150, scale: 1 })
+  })
+
+  it('clamps zero-area bounds to a sane scale and centres them', () => {
+    const fitted = fitExtents(viewport, { minX: 3, minY: 7, maxX: 3, maxY: 7 }, 400, 300, margin)
+    expect(fitted.scale).toBe(1)
+    expect(worldToScreen(fitted, 3, 7)).toEqual({ sx: 200, sy: 150 })
+  })
+
+  it('fits a zero-width span by its height alone', () => {
+    const fitted = fitExtents(viewport, { minX: 0, minY: 5, maxX: 0, maxY: 105 }, 400, 300, margin)
+    expect(fitted.scale).toBeCloseTo(2.2) // min(Infinity, 220/100)
+    expect(worldToScreen(fitted, 0, 105).sy).toBeCloseTo(margin)
   })
 })

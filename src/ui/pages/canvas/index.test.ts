@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDocument, addEntity, getEntity, updateLayer } from '../../../document.js'
 import { TEXT_DEFAULT_SIZE } from '../../../tools/text.js'
 import type { ToolId } from '../../../tools/types.js'
-import { screenToWorld } from '../../../viewport.js'
+import { screenToWorld, worldToScreen } from '../../../viewport.js'
 import './index.js'
 import { CadCanvas } from './index.js'
 
@@ -964,6 +964,78 @@ describe('cad-canvas', () => {
 
       expect(el.getSelection()).toBeNull()
       expect(el.getDocument().entities).toHaveLength(1)
+
+      el.remove()
+    })
+  })
+
+  describe('fit to extents', () => {
+    /** A document far from the origin so fitting visibly recentres. */
+    function makeFarCanvas(): CadCanvas {
+      const el = makeCanvas()
+      stubSize(el, 400, 300)
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setDocument(addEntity(createDocument(), { id: 'e1', type: 'line', x1: 1000, y1: 1000, x2: 1100, y2: 1050 }))
+      return el
+    }
+
+    it('fitToExtents frames the whole document with a margin', () => {
+      const el = makeFarCanvas()
+      el.fitToExtents(el.getDocument())
+
+      const vp = el.getViewport()
+      // Width governs: min(320/100, 220/50) = 3.2.
+      expect(vp.scale).toBeCloseTo(3.2)
+      // Bounds land inside the 40px margin on the governing axis.
+      expect(worldToScreen(vp, 1000, 1000).sx).toBeCloseTo(40)
+      expect(worldToScreen(vp, 1100, 1050).sx).toBeCloseTo(360)
+
+      el.remove()
+    })
+
+    it('an empty document recentres the origin at unit scale', () => {
+      const el = makeCanvas()
+      stubSize(el, 400, 300)
+      el.setViewport({ offsetX: -500, offsetY: 900, scale: 5 })
+      el.fitToExtents(el.getDocument())
+
+      expect(el.getViewport()).toEqual({ offsetX: 200, offsetY: 150, scale: 1 })
+
+      el.remove()
+    })
+
+    it('is a no-op before the canvas has a size', () => {
+      const el = makeFarCanvas()
+      // makeFarCanvas's stubbed size is dropped to simulate pre-layout.
+      Object.defineProperty(el, 'clientWidth', { value: 0, configurable: true })
+      const before = el.getViewport()
+
+      el.fitToExtents(el.getDocument())
+      expect(el.getViewport()).toEqual(before)
+
+      el.remove()
+    })
+
+    it('F frames the document', () => {
+      const el = makeFarCanvas()
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true }))
+
+      expect(el.getViewport().scale).toBeCloseTo(3.2)
+
+      el.remove()
+    })
+
+    it('F is inert while the text editor has focus', () => {
+      const el = makeFarCanvas()
+      el.setViewport({ offsetX: 100, offsetY: 100, scale: 1 })
+      const before = el.getViewport()
+
+      const input = document.createElement('input')
+      el.appendChild(input)
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }))
+
+      expect(el.getViewport()).toEqual(before)
 
       el.remove()
     })

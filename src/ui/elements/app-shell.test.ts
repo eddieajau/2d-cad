@@ -302,7 +302,7 @@ describe('app-shell', () => {
   })
 
   describe('actions', () => {
-    it('emits app-shell:action from the New/Open/Save buttons', () => {
+    it('emits app-shell:action from the New/Open/Save/Fit buttons', () => {
       const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
       const { shell } = makeShell()
 
@@ -310,13 +310,54 @@ describe('app-shell', () => {
       shell.addEventListener('app-shell:action', event => {
         actions.push((event as CustomEvent<string>).detail)
       })
-      for (const action of ['new', 'open', 'save']) {
+      for (const action of ['new', 'open', 'save', 'fit']) {
         shell.querySelector<HTMLButtonElement>(`button[data-action="${action}"]`)!.click()
       }
 
-      expect(actions).toEqual(['new', 'open', 'save'])
+      expect(actions).toEqual(['new', 'open', 'save', 'fit'])
 
       click.mockRestore()
+      shell.remove()
+    })
+
+    it('Fit frames the document on the canvas at the largest fitting zoom', () => {
+      const { shell, canvas } = makeShell()
+      Object.defineProperty(canvas, 'clientWidth', { value: 400, configurable: true })
+      Object.defineProperty(canvas, 'clientHeight', { value: 300, configurable: true })
+
+      // Commit a line through world (0,0)–(40,0); the shell starts zoomed in.
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 40, 0)
+      canvas.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+
+      shell.querySelector<HTMLButtonElement>('button[data-action="fit"]')!.click()
+
+      const vp = canvas.getViewport()
+      // The line's width governs: 320/40 = 8; centred with a 40px margin.
+      expect(vp.scale).toBeCloseTo(8)
+      expect(vp.offsetX).toBeCloseTo(40)
+      expect(vp.offsetY).toBeCloseTo(150)
+
+      shell.remove()
+    })
+
+    it('Open frames the loaded document', async () => {
+      const fitSpy = vi.spyOn(CadCanvas.prototype, 'fitToExtents')
+      const { shell } = makeShell()
+      const file = new File(
+        [JSON.stringify({ entities: [{ id: 'e1', type: 'line', x1: 1000, y1: 1000, x2: 1100, y2: 1050 }] })],
+        'drawing.json',
+        { type: 'application/json' }
+      )
+      const input = shell.querySelector<HTMLInputElement>('.file-input')!
+      Object.defineProperty(input, 'files', { value: [file], configurable: true })
+
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(fitSpy).toHaveBeenCalledTimes(1)
+
+      fitSpy.mockRestore()
       shell.remove()
     })
 

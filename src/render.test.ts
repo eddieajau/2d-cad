@@ -15,6 +15,7 @@ import {
   type Entity,
 } from './document.js'
 import {
+  documentBounds,
   drawDim,
   drawText,
   formatLength,
@@ -389,5 +390,33 @@ describe('drawDim', () => {
     const label = calls.find(c => c.method === 'fillText')
     expect(label!.args[0]).toBe('40 mm')
     expect(calls).toContainEqual({ method: 'set:font', args: ['10px sans-serif'] })
+  })
+})
+
+describe('documentBounds', () => {
+  it('is null for an empty document', () => {
+    expect(documentBounds(createDocument())).toBeNull()
+  })
+
+  it('unions the bounds of every entity', () => {
+    const bounds = documentBounds(docWith(line, circle))
+    expect(bounds).toEqual({ minX: 10, minY: 10, maxX: 120, maxY: 120 })
+  })
+
+  it('measures referenced entities where they resolve, not where they are stored', () => {
+    // The child is stored at the origin but resolves to the parent's ne
+    // corner + (50, 0), i.e. (100,50)–(150,100).
+    const parent = { id: 'parent', type: 'rect', layerId: 'layer-0', x: 0, y: 0, w: 100, h: 100 } as const
+    const child = {
+      id: 'child',
+      type: 'rect',
+      layerId: 'layer-0',
+      x: 0,
+      y: 0,
+      w: 50,
+      h: 50,
+      ref: { id: 'parent', corner: 'ne', dx: 50, dy: 0 },
+    } as const
+    expect(documentBounds(docWith(parent, child))).toEqual({ minX: 0, minY: 0, maxX: 150, maxY: 100 })
   })
 })

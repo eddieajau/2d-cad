@@ -62,3 +62,39 @@ export function zoomAt(v: Viewport, factor: number, sx: number, sy: number): Vie
 export function panBy(v: Viewport, dx: number, dy: number): Viewport {
   return { offsetX: v.offsetX + dx, offsetY: v.offsetY + dy, scale: v.scale }
 }
+
+/** Scale floor for degenerate bounds — a point has no extent to fit. */
+const MIN_FIT_SCALE = 1
+
+/**
+ * The viewport that frames `bounds` as large as the screen allows: the
+ * smaller of the width/height fit scales (aspect preserved), bounds centre
+ * on the screen centre, `marginPx` of breathing room each side. Degenerate
+ * bounds (a single point, or a screen smaller than the margin) clamp to
+ * {@link MIN_FIT_SCALE}. A `null` bounds (empty document) returns the
+ * default first-sight view — origin centred at unit scale, the same
+ * centring the canvas applies on first layout.
+ */
+export function fitExtents(
+  viewport: Viewport,
+  bounds: WorldRect | null,
+  width: number,
+  height: number,
+  marginPx: number
+): Viewport {
+  if (bounds === null) {
+    return panBy({ offsetX: 0, offsetY: 0, scale: 1 }, width / 2, height / 2)
+  }
+  const w = bounds.maxX - bounds.minX
+  const h = bounds.maxY - bounds.minY
+  // A zero span yields an Infinity ratio, which min() discards in favour of
+  // the other axis — only a fully degenerate bounds needs the clamp.
+  const scale = Math.min((width - 2 * marginPx) / w, (height - 2 * marginPx) / h)
+  const fitScale = Number.isFinite(scale) && scale > 0 ? scale : MIN_FIT_SCALE
+  const cx = (bounds.minX + bounds.maxX) / 2
+  const cy = (bounds.minY + bounds.maxY) / 2
+  // Keep `viewport` in the signature for call-site symmetry; the fitted view
+  // replaces it wholesale.
+  void viewport
+  return { offsetX: width / 2 - cx * fitScale, offsetY: height / 2 + cy * fitScale, scale: fitScale }
+}

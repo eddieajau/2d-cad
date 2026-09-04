@@ -18,7 +18,7 @@ import {
 } from '../../../document.js'
 import { anchorPoint } from '../../../geometry.js'
 import { hitTest } from '../../../hit-test.js'
-import { gridInterval, renderScene } from '../../../render.js'
+import { documentBounds, gridInterval, renderScene } from '../../../render.js'
 import { resolveSnapGrid, snapToGrid, type SnapMode } from '../../../snap.js'
 import { CircleTool } from '../../../tools/circle.js'
 import { DimTool } from '../../../tools/dim.js'
@@ -29,7 +29,15 @@ import { SELECT_TOLERANCE_PX, SelectTool, type SelectToolState } from '../../../
 import { TextTool, TEXT_DEFAULT_SIZE, type TextToolState } from '../../../tools/text.js'
 import type { Tool, ToolCommit, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
 import { WallTool } from '../../../tools/wall.js'
-import { screenToWorld, worldToScreen, panBy, zoomAt, type Viewport, type WorldPoint } from '../../../viewport.js'
+import {
+  fitExtents,
+  screenToWorld,
+  worldToScreen,
+  panBy,
+  zoomAt,
+  type Viewport,
+  type WorldPoint,
+} from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
   'cad-canvas:pointer': CustomEvent<{ world: { x: number; y: number }; buttons: number }>
@@ -58,6 +66,9 @@ const MAX_DEVICE_PIXEL_RATIO = 2
 /** Wheel-zoom sensitivity; trackpad pinch (ctrlKey) uses the finer one. */
 const WHEEL_ZOOM_STRENGTH = 0.0015
 const PINCH_ZOOM_STRENGTH = 0.0005
+
+/** Breathing room (screen px) left around the drawing when fitting extents. */
+const FIT_MARGIN_PX = 40
 
 const DEFAULT_THEME = {
   gridMinor: '#1f243014',
@@ -286,6 +297,20 @@ export class CadCanvas extends HTMLElement {
     this.invalidate()
   }
 
+  /**
+   * Frame the whole document on screen at the largest zoom that fits, with
+   * a margin. The document is passed in (not read from state) so the
+   * mediator can fit the history head it owns. No-op before layout, when
+   * there is no measured size to fit into.
+   */
+  fitToExtents(doc: DrawingDocument): void {
+    const width = this.clientWidth
+    const height = this.clientHeight
+    if (width <= 0 || height <= 0) return
+    this.#viewport = fitExtents(this.#viewport, documentBounds(doc), width, height, FIT_MARGIN_PX)
+    this.invalidate()
+  }
+
   #onPointer = (event: PointerEvent): void => {
     const canvas = this.#canvas
     if (canvas === null) return
@@ -378,6 +403,12 @@ export class CadCanvas extends HTMLElement {
 
     if (event.key.toLowerCase() === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       this.#toggleSnap()
+      return
+    }
+
+    if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      this.fitToExtents(this.#document)
       return
     }
 

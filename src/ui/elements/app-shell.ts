@@ -31,7 +31,7 @@ import type { LayerPanelChange } from './layer-panel.js'
 import './status-bar.js'
 import './tool-palette.js'
 
-export type AppShellAction = 'new' | 'open' | 'save'
+export type AppShellAction = 'new' | 'open' | 'save' | 'fit'
 
 export interface AppShellEventMap {
   'app-shell:action': CustomEvent<AppShellAction>
@@ -49,8 +49,9 @@ const AUTOSAVE_DELAY_MS = 1000
  * ops onto `updateEntity`, each through the same history commit, so layer
  * and colour changes are undoable like any edit. The shell is
  * also the persistence boundary: document changes autosave to
- * localStorage (debounced), and the New/Open/Save actions row round-trips
- * documents through files. Elements stay persistence-free.
+ * localStorage (debounced), and the New/Open/Save/Fit actions row
+ * round-trips documents through files (Fit frames the drawing on screen).
+ * Elements stay persistence-free.
  */
 export class AppShell extends HTMLElement {
   #abort: AbortController | null = null
@@ -93,6 +94,7 @@ export class AppShell extends HTMLElement {
           <button type="button" data-action="new">New</button>
           <button type="button" data-action="open">Open</button>
           <button type="button" data-action="save">Save</button>
+          <button type="button" data-action="fit" title="Fit drawing to view (F)">Fit</button>
           <input class="file-input" type="file" accept="application/json,.json" hidden />
         </div>
       </header>
@@ -159,7 +161,7 @@ export class AppShell extends HTMLElement {
     const button = target?.closest<HTMLButtonElement>('button[data-action]')
     if (button === null || button === undefined) return
     const action = button.dataset.action
-    if (action === 'new' || action === 'open' || action === 'save') {
+    if (action === 'new' || action === 'open' || action === 'save' || action === 'fit') {
       this.dispatchEvent(
         new CustomEvent<AppShellAction>('app-shell:action', {
           bubbles: true,
@@ -174,6 +176,7 @@ export class AppShell extends HTMLElement {
     const action = (event as CustomEvent<AppShellAction>).detail
     if (action === 'new') this.#newDocument()
     else if (action === 'open') this.querySelector<HTMLInputElement>('.file-input')?.click()
+    else if (action === 'fit') this.querySelector('cad-canvas')?.fitToExtents(current(this.#history))
     else {
       const doc = this.querySelector('cad-canvas')?.getDocument()
       if (doc) downloadDocument(doc)
@@ -200,7 +203,12 @@ export class AppShell extends HTMLElement {
     try {
       const doc = await openDocument(file)
       this.#history = createHistory(doc)
-      this.querySelector('cad-canvas')?.setDocument(doc)
+      const canvas = this.querySelector('cad-canvas')
+      if (canvas) {
+        canvas.setDocument(doc)
+        // An opened file lands framed — no hunt for the missing building.
+        canvas.fitToExtents(doc)
+      }
       this.#persistNow(doc)
       this.#syncLayerPanel()
     } catch (error) {

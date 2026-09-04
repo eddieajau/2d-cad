@@ -5,6 +5,7 @@
 
 import {
   layerById,
+  resolveDocument,
   type DrawingDocument,
   type EntityDraft,
   type EntityId,
@@ -146,6 +147,29 @@ export function entityBounds(entity: EntityDraft): WorldRect {
     case 'wall':
       return wallBounds(entity)
   }
+}
+
+function union(a: WorldRect, b: WorldRect): WorldRect {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  }
+}
+
+/**
+ * The world-space extent of the document as it renders: the union of
+ * {@link entityBounds} over the resolved entities (references applied, so
+ * linked entities count where they sit, not where they are stored). Null
+ * for an empty document — the caller decides what an empty view means.
+ */
+export function documentBounds(doc: DrawingDocument): WorldRect | null {
+  let bounds: WorldRect | null = null
+  for (const entity of resolveDocument(doc).entities) {
+    bounds = bounds === null ? entityBounds(entity) : union(bounds, entityBounds(entity))
+  }
+  return bounds
 }
 
 function drawEntity(ctx: CanvasRenderingContext2D, entity: EntityDraft, v: Viewport): void {
