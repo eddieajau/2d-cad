@@ -23,6 +23,7 @@ export class StatusBar extends HTMLElement {
   #position: WorldPoint | null = null
   #snapMode: SnapMode = 'off'
   #selectedId: EntityId | null = null
+  #selectedThickness: number | undefined
   #hintText: string | null = null
   #coords: HTMLSpanElement | null = null
   #snap: HTMLSpanElement | null = null
@@ -59,11 +60,17 @@ export class StatusBar extends HTMLElement {
     if (this.#snap !== null) this.#snap.textContent = `Snap: ${mode === 'grid' ? 'on' : 'off'} (G)`
   }
 
-  /** Selected entity id, or null when nothing is selected. */
-  setSelection(selection: { id: EntityId } | null): void {
+  /** Selected entity id (plus a wall's thickness), or null when nothing is selected. */
+  setSelection(selection: { id: EntityId; thickness?: number } | null): void {
     this.#selectedId = selection?.id ?? null
+    this.#selectedThickness = selection?.thickness
     if (this.#selection === null) return
-    this.#selection.textContent = this.#selectedId === null ? 'No selection' : `Selected: ${String(this.#selectedId)}`
+    this.#selection.textContent =
+      this.#selectedId === null
+        ? 'No selection'
+        : this.#selectedThickness !== undefined
+          ? `Selected: ${String(this.#selectedId)} — wall ${formatCoord(this.#selectedThickness)} mm`
+          : `Selected: ${String(this.#selectedId)}`
   }
 
   /** A transient refusal message (e.g. a locked-layer edit), or null to clear. */
@@ -75,7 +82,7 @@ export class StatusBar extends HTMLElement {
   syncDisplay(): void {
     if (this.#position !== null) this.setPosition(this.#position)
     this.setSnap(this.#snapMode)
-    this.setSelection(this.#selectedId === null ? null : { id: this.#selectedId })
+    this.setSelection(this.#selectedId === null ? null : { id: this.#selectedId, thickness: this.#selectedThickness })
     this.setHint(this.#hintText)
   }
 }

@@ -87,7 +87,30 @@ export interface DimEntity {
   colour?: string
 }
 
-export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity
+/**
+ * Which face of the wall the envelope (`x/y/w/h`) is: the wall band grows
+ * from that face toward the opposite side. `'outer'` (the default when
+ * drawing) means the drawn rectangle is the building's outer face and the
+ * thickness extends inward.
+ */
+export type WallAlignment = 'outer' | 'centre' | 'inner'
+
+export interface WallEntity {
+  id: EntityId
+  type: 'wall'
+  layerId: EntityId
+  x: number
+  y: number
+  w: number
+  h: number
+  /** Physical band thickness in millimetres (world units). */
+  thickness: number
+  alignment: WallAlignment
+  /** Optional per-entity colour override; absent means "use the layer's". */
+  colour?: string
+}
+
+export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity | WallEntity
 
 /** Omit, distributed over unions so each member keeps its own keys. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -171,6 +194,8 @@ export function translateEntity(entity: Entity, dx: number, dy: number): Entity 
         x2: entity.x2 + dx,
         y2: entity.y2 + dy,
       }
+    case 'wall':
+      return { ...entity, x: entity.x + dx, y: entity.y + dy }
   }
 }
 
@@ -295,6 +320,15 @@ function parseEntity(value: unknown): EntityDraft {
         throw new DocumentParseError('Dim entity has missing or non-finite values')
       }
       return value as DimEntity
+    case 'wall': {
+      if (!isFiniteRecord(record, ['x', 'y', 'w', 'h', 'thickness'])) {
+        throw new DocumentParseError('Wall entity has missing or non-finite values')
+      }
+      if (record.alignment !== 'outer' && record.alignment !== 'centre' && record.alignment !== 'inner') {
+        throw new DocumentParseError('Wall entity must have an "alignment" of outer, centre, or inner')
+      }
+      return value as WallEntity
+    }
     default:
       throw new DocumentParseError(`Unknown entity type: ${String(record.type)}`)
   }

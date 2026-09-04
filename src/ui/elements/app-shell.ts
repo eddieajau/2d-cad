@@ -97,7 +97,7 @@ export class AppShell extends HTMLElement {
         </div>
       </header>
       <div class="tool-strip">
-        <tool-palette tools="select,line,rect,circle,text,dim" active="line"></tool-palette>
+        <tool-palette tools="select,line,rect,circle,text,dim,wall" active="line"></tool-palette>
         <entity-colour></entity-colour>
         <layer-panel></layer-panel>
       </div>
@@ -117,6 +117,7 @@ export class AppShell extends HTMLElement {
     this.addEventListener('app-shell:action', this.#onAction, opts)
     this.querySelector<HTMLInputElement>('.file-input')?.addEventListener('change', this.#onFileChange, opts)
     this.addEventListener('tool-palette:select', this.#onToolSelect, opts)
+    this.addEventListener('tool-palette:thickness', this.#onThicknessChange, opts)
     this.addEventListener('layer-panel:change', this.#onLayerChange, opts)
     this.addEventListener('entity-colour:change', this.#onEntityColour, opts)
     this.addEventListener('cad-canvas:commit', this.#onDocChange, opts)
@@ -231,6 +232,12 @@ export class AppShell extends HTMLElement {
     this.querySelector('tool-palette')?.setAttribute('active', tool)
   }
 
+  /** Wall thickness from the palette input, pushed into the canvas tool. */
+  #onThicknessChange = (event: Event): void => {
+    const { thickness } = (event as CustomEvent<{ thickness: number }>).detail
+    this.querySelector('cad-canvas')?.setWallThickness(thickness)
+  }
+
   /** Push the history head's layer table down into the panel. */
   #syncLayerPanel(): void {
     const doc = current(this.#history)
@@ -341,7 +348,10 @@ export class AppShell extends HTMLElement {
 
   #onSelectionChange = (event: Event): void => {
     const { id } = (event as CustomEvent<{ id: EntityId | null }>).detail
-    this.querySelector('status-bar')?.setSelection(id === null ? null : { id })
+    const entity = id === null ? undefined : getEntity(current(this.#history), id)
+    this.querySelector('status-bar')?.setSelection(
+      id === null ? null : { id, thickness: entity?.type === 'wall' ? entity.thickness : undefined }
+    )
     // Any new interaction supersedes a refusal hint.
     this.querySelector('status-bar')?.setHint(null)
     this.#syncEntityColour()

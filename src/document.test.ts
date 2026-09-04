@@ -29,6 +29,7 @@ import {
   type LineEntity,
   type RectEntity,
   type TextEntity,
+  type WallEntity,
 } from './document.js'
 
 const line: LineEntity = {
@@ -165,6 +166,22 @@ describe('translateEntity', () => {
   it('translates a dim without touching its offset', () => {
     expect(translateEntity(dim, 5, -1)).toEqual({ ...dim, x1: 5, y1: -1, x2: 15, y2: -1 })
   })
+
+  it('translates a wall envelope without touching thickness or alignment', () => {
+    const wall: WallEntity = {
+      id: 'e6',
+      type: 'wall',
+      layerId: 'layer-0',
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 4,
+      thickness: 270,
+      alignment: 'outer',
+    }
+    const moved = translateEntity(wall, 5, -2)
+    expect(moved).toEqual({ ...wall, x: 5, y: -2 })
+  })
 })
 
 describe('serialize/deserialize round-trip', () => {
@@ -180,6 +197,22 @@ describe('serialize/deserialize round-trip', () => {
     const doc = addEntity(addEntity(createDocument(), text), dim)
     const restored = deserializeDocument(serializeDocument(doc))
     expect(restored).toEqual(doc)
+  })
+
+  it('round-trips a wall with thickness and alignment', () => {
+    const wall: WallEntity = {
+      id: 'e6',
+      type: 'wall',
+      layerId: 'layer-0',
+      x: 0,
+      y: 0,
+      w: 8000,
+      h: 6000,
+      thickness: 270,
+      alignment: 'centre',
+    }
+    const doc = addEntity(createDocument(), wall)
+    expect(deserializeDocument(serializeDocument(doc))).toEqual(doc)
   })
 
   it('round-trips a document with multiple layers', () => {
@@ -250,6 +283,16 @@ describe('deserializeDocument', () => {
   it('throws DocumentParseError on a dim entity with missing values', () => {
     const json = JSON.stringify({ entities: [{ id: 'e1', type: 'dim', x1: 0, y1: 0, x2: 10, y2: 0 }] })
     expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+  })
+
+  it('throws DocumentParseError on a wall with missing values or a bad alignment', () => {
+    const missing = JSON.stringify({ entities: [{ id: 'e1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness: 270 }] })
+    expect(() => deserializeDocument(missing)).toThrow(DocumentParseError)
+
+    const badAlignment = JSON.stringify({
+      entities: [{ id: 'e1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness: 270, alignment: 'sideways' }],
+    })
+    expect(() => deserializeDocument(badAlignment)).toThrow(DocumentParseError)
   })
 
   it('throws DocumentParseError on a malformed layer', () => {

@@ -13,6 +13,7 @@ import type { ToolContext } from './types.js'
 const ctx: ToolContext = {
   doc: createDocument(),
   viewport: { offsetX: 0, offsetY: 0, scale: 1 } satisfies Viewport,
+  wallThickness: 270,
 }
 
 const down = new PointerEvent('pointerdown')

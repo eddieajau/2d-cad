@@ -5,9 +5,43 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { dimLine, dimOffset, textBounds } from './geometry.js'
+import { dimLine, dimOffset, textBounds, wallBand } from './geometry.js'
+import type { WallGeometry } from './geometry.js'
 
 const p = (x: number, y: number) => ({ x, y })
+
+function wall(alignment: WallGeometry['alignment'], thickness = 2): WallGeometry {
+  return { id: 'w1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness, alignment }
+}
+
+describe('wallBand', () => {
+  it('grows an outer-aligned wall inward from the drawn envelope', () => {
+    const { outer, inner } = wallBand(wall('outer'))
+    expect(outer).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
+    expect(inner).toEqual({ minX: 2, minY: 2, maxX: 8, maxY: 2 })
+  })
+
+  it('grows an inner-aligned wall outward from the drawn envelope', () => {
+    const { outer, inner } = wallBand(wall('inner'))
+    expect(outer).toEqual({ minX: -2, minY: -2, maxX: 12, maxY: 6 })
+    expect(inner).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
+  })
+
+  it('straddles the drawn envelope for centre alignment', () => {
+    const { outer, inner } = wallBand(wall('centre'))
+    expect(outer).toEqual({ minX: -1, minY: -1, maxX: 11, maxY: 5 })
+    expect(inner).toEqual({ minX: 1, minY: 1, maxX: 9, maxY: 3 })
+  })
+
+  it('collapses onto the envelope for degenerate thickness', () => {
+    const { outer, inner } = wallBand(wall('outer', 0))
+    expect(outer).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
+    expect(inner).toEqual(outer)
+
+    // Negative thickness is clamped to the same degenerate band.
+    expect(wallBand(wall('centre', -5)).inner).toEqual(wallBand(wall('centre', 0)).inner)
+  })
+})
 
 describe('dimLine', () => {
   it('offsets a horizontal segment above for positive offsets', () => {

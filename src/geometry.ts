@@ -3,7 +3,7 @@
  * @license   MIT
  */
 
-import type { DimEntity, TextEntity } from './document.js'
+import type { DimEntity, TextEntity, WallEntity } from './document.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -19,6 +19,9 @@ export type TextGeometry = Omit<TextEntity, 'layerId'>
 
 /** A dim entity without its layer reference. */
 export type DimGeometry = Omit<DimEntity, 'layerId'>
+
+/** A wall entity without its layer reference. */
+export type WallGeometry = Omit<WallEntity, 'layerId'>
 
 /**
  * Approximate advance width per character, in em, for the single drafting
@@ -67,4 +70,41 @@ export function dimOffset(first: WorldPoint, second: WorldPoint, p: WorldPoint):
   const length = Math.hypot(dx, dy)
   if (length === 0) return 0
   return (dx * (p.y - first.y) - dy * (p.x - first.x)) / length
+}
+
+/** Normalised world rect from an envelope drawn corner-to-corner. */
+function envelopeRect(e: WallGeometry): WorldRect {
+  return {
+    minX: Math.min(e.x, e.x + e.w),
+    minY: Math.min(e.y, e.y + e.h),
+    maxX: Math.max(e.x, e.x + e.w),
+    maxY: Math.max(e.y, e.y + e.h),
+  }
+}
+
+/** Inset a rect inward by `t` on every face; inverted when `t` exceeds a span. */
+function insetRect(r: WorldRect, t: number): WorldRect {
+  return { minX: r.minX + t, minY: r.minY + t, maxX: r.maxX - t, maxY: r.maxY - t }
+}
+
+/**
+ * The wall band for an entity: the outer face rect and the inner face rect,
+ * both normalised. The envelope as drawn is the face named by `alignment`
+ * and the thickness grows to the opposite side — `'outer'` keeps the drawn
+ * rect as the band's outer boundary, `'inner'` as its inner boundary, and
+ * `'centre'` straddles it by thickness/2. Degenerate (≤ 0) thickness
+ * collapses the band onto the drawn rect: inner equals outer.
+ */
+export function wallBand(e: WallGeometry): { outer: WorldRect; inner: WorldRect } {
+  const envelope = envelopeRect(e)
+  const t = Math.max(0, e.thickness)
+  if (t === 0) return { outer: envelope, inner: envelope }
+  switch (e.alignment) {
+    case 'outer':
+      return { outer: envelope, inner: insetRect(envelope, t) }
+    case 'inner':
+      return { outer: insetRect(envelope, -t), inner: envelope }
+    case 'centre':
+      return { outer: insetRect(envelope, -t / 2), inner: insetRect(envelope, t / 2) }
+  }
 }

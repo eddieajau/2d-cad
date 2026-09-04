@@ -12,6 +12,7 @@ import {
   distanceToLineSegment,
   distanceToRect,
   distanceToText,
+  distanceToWall,
   hitTest,
 } from './hit-test.js'
 
@@ -104,6 +105,33 @@ describe('distanceToDim', () => {
   })
 })
 
+describe('distanceToWall', () => {
+  // Envelope (0,0)–(20,10) drawn as the outer face; a 2 mm band grows inward,
+  // so the inner void is (2,2)–(18,8).
+  const wall = { id: 'w1', type: 'wall', x: 0, y: 0, w: 20, h: 10, thickness: 2, alignment: 'outer' } as const
+
+  it('is zero on the band and both faces', () => {
+    expect(distanceToWall(p(1, 5), wall)).toBe(0)
+    expect(distanceToWall(p(0, 0), wall)).toBe(0)
+    expect(distanceToWall(p(18, 8), wall)).toBe(0)
+  })
+
+  it('measures to the nearest inner face from inside the void', () => {
+    expect(distanceToWall(p(10, 5), wall)).toBe(3)
+    expect(distanceToWall(p(3.5, 7), wall)).toBe(1)
+  })
+
+  it('measures to the nearest band boundary outside', () => {
+    expect(distanceToWall(p(10, 12), wall)).toBe(2)
+    expect(distanceToWall(p(-3, 5), wall)).toBe(3)
+  })
+
+  it('is zero everywhere inside a wall whose thickness closes the envelope', () => {
+    const solid = { id: 'w2', type: 'wall', x: 0, y: 0, w: 20, h: 10, thickness: 50, alignment: 'outer' } as const
+    expect(distanceToWall(p(10, 5), solid)).toBe(0)
+  })
+})
+
 describe('hitTest', () => {
   const doc = docWith(
     { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 },
@@ -140,6 +168,13 @@ describe('hitTest', () => {
     expect(hitTest(annotated, p(32, 12), 1)?.id).toBe('e4')
     // The dimension line sits at y = -8 (offset +2 from y = -10).
     expect(hitTest(annotated, p(5, -8), 0.5)?.id).toBe('e5')
+  })
+
+  it('hits wall bands through the document', () => {
+    const walled = docWith({ id: 'e6', type: 'wall', x: 0, y: 0, w: 20, h: 10, thickness: 2, alignment: 'outer' })
+    expect(hitTest(walled, p(1, 5), 0.5)?.id).toBe('e6')
+    // The inner void is a miss at a tight tolerance.
+    expect(hitTest(walled, p(10, 5), 0.5)).toBeNull()
   })
 
   it('skips entities on invisible layers', () => {

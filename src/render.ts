@@ -13,9 +13,10 @@ import {
   type RectEntity,
   type TextEntity,
   type DimEntity,
+  type WallEntity,
   type Entity,
 } from './document.js'
-import { dimLine, textBounds } from './geometry.js'
+import { dimLine, textBounds, wallBand } from './geometry.js'
 import { visibleWorldRect, worldToScreen, type Viewport, type WorldPoint, type WorldRect } from './viewport.js'
 
 /**
@@ -91,6 +92,7 @@ type CircleGeometry = Omit<CircleEntity, 'layerId'>
 type RectGeometry = Omit<RectEntity, 'layerId'>
 type TextGeometry = Omit<TextEntity, 'layerId'>
 type DimGeometry = Omit<DimEntity, 'layerId'>
+type WallGeometry = Omit<WallEntity, 'layerId'>
 
 function lineBounds(e: LineGeometry): WorldRect {
   return {
@@ -124,6 +126,11 @@ function dimBounds(e: DimGeometry): WorldRect {
   }
 }
 
+/** Walls occupy their band's outer face — bounds and culling use it. */
+function wallBounds(e: WallGeometry): WorldRect {
+  return wallBand(e).outer
+}
+
 export function entityBounds(entity: EntityDraft): WorldRect {
   switch (entity.type) {
     case 'line':
@@ -136,6 +143,8 @@ export function entityBounds(entity: EntityDraft): WorldRect {
       return textBounds(entity)
     case 'dim':
       return dimBounds(entity)
+    case 'wall':
+      return wallBounds(entity)
   }
 }
 
@@ -155,6 +164,9 @@ function drawEntity(ctx: CanvasRenderingContext2D, entity: EntityDraft, v: Viewp
       break
     case 'dim':
       drawDim(ctx, entity, v)
+      break
+    case 'wall':
+      drawWall(ctx, entity, v)
       break
   }
 }
@@ -193,6 +205,34 @@ export function drawCircle(ctx: CanvasRenderingContext2D, e: CircleGeometry, v: 
 export function drawRect(ctx: CanvasRenderingContext2D, e: RectGeometry, v: Viewport): void {
   const origin = worldToScreen(v, e.x, e.y + e.h)
   ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
+}
+
+/** Screen-space top-left corner and size of a world rect (y-up world). */
+function rectScreen(v: Viewport, r: WorldRect): { x: number; y: number; w: number; h: number } {
+  const origin = worldToScreen(v, r.minX, r.maxY)
+  return { x: origin.sx, y: origin.sy, w: (r.maxX - r.minX) * v.scale, h: (r.maxY - r.minY) * v.scale }
+}
+
+/**
+ * A wall renders as a filled band between its outer and inner faces (an
+ * even-odd path), with both faces inked. When the thickness closes the
+ * envelope's hole the band is simply the solid outer rect.
+ */
+export function drawWall(ctx: CanvasRenderingContext2D, e: WallGeometry, v: Viewport): void {
+  const { outer, inner } = wallBand(e)
+  const o = rectScreen(v, outer)
+  const i = rectScreen(v, inner)
+  const solid = i.w <= 0 || i.h <= 0
+  ctx.beginPath()
+  ctx.rect(o.x, o.y, o.w, o.h)
+  if (solid) {
+    ctx.fill()
+  } else {
+    ctx.rect(i.x, i.y, i.w, i.h)
+    ctx.fill('evenodd')
+    ctx.strokeRect(i.x, i.y, i.w, i.h)
+  }
+  ctx.strokeRect(o.x, o.y, o.w, o.h)
 }
 
 /**

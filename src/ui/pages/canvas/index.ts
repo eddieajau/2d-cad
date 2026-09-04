@@ -24,6 +24,7 @@ import { RectTool } from '../../../tools/rect.js'
 import { SELECT_TOLERANCE_PX, SelectTool, type SelectToolState } from '../../../tools/select.js'
 import { TextTool, TEXT_DEFAULT_SIZE, type TextToolState } from '../../../tools/text.js'
 import type { Tool, ToolCommit, ToolContext, ToolId, ToolState } from '../../../tools/types.js'
+import { WallTool } from '../../../tools/wall.js'
 import { screenToWorld, worldToScreen, panBy, zoomAt, type Viewport, type WorldPoint } from '../../../viewport.js'
 
 export interface CadCanvasEventMap {
@@ -44,6 +45,7 @@ const TOOLS: Record<ToolId, Tool> = {
   circle: new CircleTool(),
   text: new TextTool(),
   dim: new DimTool(),
+  wall: new WallTool(),
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2
@@ -68,6 +70,7 @@ export class CadCanvas extends HTMLElement {
   #toolState: ToolState = this.#tool.init()
   #selectedId: EntityId | null = null
   #snapMode: SnapMode = 'off'
+  #wallThickness = 270
   #dirty = false
   #rafId = 0
   #textInput: HTMLInputElement | null = null
@@ -171,6 +174,17 @@ export class CadCanvas extends HTMLElement {
     return this.#tool.id
   }
 
+  /** Wall band thickness (mm) committed by the wall tool; palette page state. */
+  setWallThickness(thickness: number): void {
+    if (!Number.isFinite(thickness) || thickness < 0 || thickness === this.#wallThickness) return
+    this.#wallThickness = thickness
+    this.invalidate()
+  }
+
+  getWallThickness(): number {
+    return this.#wallThickness
+  }
+
   getSelection(): EntityId | null {
     return this.#selectedId
   }
@@ -254,7 +268,7 @@ export class CadCanvas extends HTMLElement {
 
     // Route the gesture through the active tool first; the pointer event
     // still bubbles outward as `cad-canvas:pointer` for the mediator.
-    const ctx: ToolContext = { doc: this.#document, viewport: this.#viewport }
+    const ctx: ToolContext = { doc: this.#document, viewport: this.#viewport, wallThickness: this.#wallThickness }
     if (event.type === 'pointerdown') {
       this.#toolState = this.#tool.onPointerDown(ctx, this.#toolState, world, event)
     } else if (event.type === 'pointermove') {

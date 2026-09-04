@@ -23,6 +23,10 @@ function selects(el: ToolPalette): ToolId[] {
   return picked
 }
 
+function thicknessInput(el: ToolPalette): HTMLInputElement {
+  return el.querySelector<HTMLInputElement>('.wall-thickness input')!
+}
+
 describe('tool-palette', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -120,6 +124,57 @@ describe('tool-palette', () => {
     const el = makePalette('line,bogus,circle')
     const buttons = [...el.querySelectorAll<HTMLButtonElement>('button[data-tool]')]
     expect(buttons.map(b => b.dataset.tool)).toEqual(['line', 'circle'])
+    el.remove()
+  })
+
+  it('shows the thickness input only while the wall tool is active', () => {
+    const el = makePalette('line,wall', 'line')
+    const label = el.querySelector<HTMLElement>('.wall-thickness')!
+    expect(label.hidden).toBe(true)
+
+    el.setAttribute('active', 'wall')
+    expect(label.hidden).toBe(false)
+    expect(thicknessInput(el).value).toBe('270')
+    el.remove()
+  })
+
+  it('dispatches tool-palette:thickness when the thickness input changes', () => {
+    const el = makePalette('wall', 'wall')
+    const pushed: number[] = []
+    el.addEventListener('tool-palette:thickness', event => {
+      pushed.push((event as CustomEvent<{ thickness: number }>).detail.thickness)
+    })
+
+    const input = thicknessInput(el)
+    input.value = '110'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+
+    expect(pushed).toEqual([110])
+    el.remove()
+  })
+
+  it('ignores thickness input values that are not usable thicknesses', () => {
+    const el = makePalette('wall', 'wall')
+    const pushed: number[] = []
+    el.addEventListener('tool-palette:thickness', event => {
+      pushed.push((event as CustomEvent<{ thickness: number }>).detail.thickness)
+    })
+
+    const input = thicknessInput(el)
+    for (const value of ['', '-10', 'abc']) {
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    expect(pushed).toEqual([])
+    el.remove()
+  })
+
+  it('switches tools with the w shortcut', () => {
+    const el = makePalette('wall', 'line')
+    const picked = selects(el)
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true }))
+    expect(picked).toEqual(['wall'])
     el.remove()
   })
 })

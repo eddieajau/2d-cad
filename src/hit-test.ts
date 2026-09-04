@@ -4,7 +4,7 @@
  */
 
 import type { CircleEntity, DrawingDocument, Entity, RectEntity } from './document.js'
-import { dimLine, textBounds, type DimGeometry, type TextGeometry } from './geometry.js'
+import { dimLine, textBounds, wallBand, type DimGeometry, type TextGeometry, type WallGeometry } from './geometry.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -66,6 +66,26 @@ export function distanceToDim(p: WorldPoint, e: DimGeometry): number {
   return distanceToLineSegment(p, a, b)
 }
 
+/** Whether `p` sits within (or on the boundary of) `r`. */
+function withinRect(p: WorldPoint, r: WorldRect): boolean {
+  return p.x >= r.minX && p.x <= r.maxX && p.y >= r.minY && p.y <= r.maxY
+}
+
+/**
+ * Distance from `p` to a wall band: zero anywhere within the band (inside
+ * the outer face, outside the inner face, faces included); the distance to
+ * the nearest band boundary outside it. Points inside the inner void measure
+ * to the nearest inner face, and a thickness that closes the envelope makes
+ * every interior hit zero.
+ */
+export function distanceToWall(p: WorldPoint, e: WallGeometry): number {
+  const { outer, inner } = wallBand(e)
+  if (!withinRect(p, outer)) return distanceToWorldRect(p, outer)
+  const hasVoid = inner.minX < inner.maxX && inner.minY < inner.maxY
+  if (!hasVoid || !withinRect(p, inner)) return 0
+  return Math.min(p.x - inner.minX, inner.maxX - p.x, p.y - inner.minY, inner.maxY - p.y)
+}
+
 export function distanceToEntity(p: WorldPoint, entity: Entity): number {
   switch (entity.type) {
     case 'line':
@@ -78,6 +98,8 @@ export function distanceToEntity(p: WorldPoint, entity: Entity): number {
       return distanceToText(p, entity)
     case 'dim':
       return distanceToDim(p, entity)
+    case 'wall':
+      return distanceToWall(p, entity)
   }
 }
 
