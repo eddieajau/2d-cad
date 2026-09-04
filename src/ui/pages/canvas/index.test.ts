@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDocument, addEntity, getEntity, updateLayer } from '../../../document.js'
 import { TEXT_DEFAULT_SIZE } from '../../../tools/text.js'
 import type { ToolId } from '../../../tools/types.js'
+import { screenToWorld } from '../../../viewport.js'
 import './index.js'
 import { CadCanvas } from './index.js'
 
@@ -885,6 +886,84 @@ describe('cad-canvas', () => {
         h: 100,
         ref: { id: 'parent', corner: 'se', dx: 200, dy: 0 },
       })
+
+      el.remove()
+    })
+  })
+
+  describe('navigation', () => {
+    /** Sized canvas at a non-default viewport so pan/zoom deltas are visible. */
+    function makeNavCanvas(): CadCanvas {
+      const el = makeCanvas()
+      stubSize(el, 400, 300)
+      stubCapture(el)
+      el.setViewport({ offsetX: 100, offsetY: 200, scale: 2 })
+      return el
+    }
+
+    it('scroll zoom keeps the world point at the canvas centre fixed', () => {
+      const el = makeNavCanvas()
+      const centreBefore = screenToWorld(el.getViewport(), 200, 150)
+
+      el.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, bubbles: true, cancelable: true }))
+
+      const vp = el.getViewport()
+      expect(vp.scale).toBeGreaterThan(2)
+      const centreAfter = screenToWorld(vp, 200, 150)
+      expect(centreAfter.x).toBeCloseTo(centreBefore.x)
+      expect(centreAfter.y).toBeCloseTo(centreBefore.y)
+
+      el.remove()
+    })
+
+    it('middle-drag pans the viewport without touching the document', () => {
+      const el = makeNavCanvas()
+      const commits: CustomEvent[] = []
+      el.addEventListener('cad-canvas:commit', event => commits.push(event as CustomEvent))
+
+      const canvas = el.querySelector('canvas')!
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 10, clientY: 10, button: 1, bubbles: true }))
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 40, clientY: 25, bubbles: true }))
+      canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 40, clientY: 25, button: 1, bubbles: true }))
+
+      expect(el.getViewport()).toEqual({ offsetX: 130, offsetY: 215, scale: 2 })
+      expect(el.getDocument().entities).toHaveLength(0)
+      expect(commits).toHaveLength(0)
+
+      el.remove()
+    })
+
+    it('space+drag pans and shows grab/grabbing cursors', () => {
+      const el = makeNavCanvas()
+
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+      expect(el.style.cursor).toBe('grab')
+
+      pointer(el, 'pointerdown', 10, 10)
+      expect(el.style.cursor).toBe('grabbing')
+      pointer(el, 'pointermove', 30, 5)
+      pointer(el, 'pointerup', 30, 5)
+      expect(el.getViewport()).toEqual({ offsetX: 120, offsetY: 195, scale: 2 })
+      expect(el.style.cursor).toBe('grab')
+
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }))
+      expect(el.style.cursor).toBe('')
+
+      el.remove()
+    })
+
+    it('space+click neither draws nor selects', () => {
+      const el = makeNavCanvas()
+      el.setDocument(addEntity(createDocument(), { id: 'e1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0 }))
+      el.setTool('select')
+
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+      pointer(el, 'pointerdown', 20, 0)
+      pointer(el, 'pointerup', 20, 0)
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }))
+
+      expect(el.getSelection()).toBeNull()
+      expect(el.getDocument().entities).toHaveLength(1)
 
       el.remove()
     })

@@ -55,6 +55,10 @@ const TOOLS: Record<ToolId, Tool> = {
 
 const MAX_DEVICE_PIXEL_RATIO = 2
 
+/** Wheel-zoom sensitivity; trackpad pinch (ctrlKey) uses the finer one. */
+const WHEEL_ZOOM_STRENGTH = 0.0015
+const PINCH_ZOOM_STRENGTH = 0.0005
+
 const DEFAULT_THEME = {
   gridMinor: '#1f243014',
   gridMajor: '#1f243033',
@@ -80,6 +84,8 @@ export class CadCanvas extends HTMLElement {
   #rafId = 0
   #textInput: HTMLInputElement | null = null
   #textAbort: AbortController | null = null
+  #spaceHeld = false
+  #panLast: { x: number; y: number } | null = null
 
   constructor() {
     super()
@@ -116,6 +122,7 @@ export class CadCanvas extends HTMLElement {
     this.addEventListener('pointerup', this.#onPointer, opts)
     this.addEventListener('wheel', this.#onWheel, { ...opts, passive: false })
     this.addEventListener('keydown', this.#onKeyDown, opts)
+    this.addEventListener('keyup', this.#onKeyUp, opts)
 
     if (typeof ResizeObserver !== 'undefined') {
       this.#resizeObserver = new ResizeObserver(() => this.syncCanvasSize())
@@ -130,6 +137,9 @@ export class CadCanvas extends HTMLElement {
     this.#resizeObserver = null
     this.#closeTextInput()
     cancelAnimationFrame(this.#rafId)
+    this.#spaceHeld = false
+    this.#panLast = null
+    this.style.cursor = ''
   }
 
   #startLoop(): void {
@@ -284,6 +294,31 @@ export class CadCanvas extends HTMLElement {
     } else if (event.type === 'pointerup') {
       canvas.releasePointerCapture(event.pointerId)
     }
+
+    // Pan gesture (middle-drag or space+drag) bypasses the active tool
+    // entirely: pointer deltas feed panBy in screen px — no commits, no
+    // selection, no history.
+    if (event.type === 'pointerdown' && (event.button === 1 || (event.button === 0 && this.#spaceHeld))) {
+      this.#panLast = { x: event.clientX, y: event.clientY }
+      this.style.cursor = 'grabbing'
+      this.invalidate()
+      return
+    }
+    if (this.#panLast !== null) {
+      if (event.type === 'pointermove') {
+        this.#viewport = panBy(this.#viewport, event.clientX - this.#panLast.x, event.clientY - this.#panLast.y)
+        this.#panLast = { x: event.clientX, y: event.clientY }
+        this.invalidate()
+        return
+      }
+      if (event.type === 'pointerup') {
+        this.#panLast = null
+        this.style.cursor = this.#spaceHeld ? 'grab' : ''
+        this.invalidate()
+        return
+      }
+    }
+
     const rect = canvas.getBoundingClientRect()
     const raw = screenToWorld(this.#viewport, event.clientX - rect.left, event.clientY - rect.top)
 
@@ -333,6 +368,14 @@ export class CadCanvas extends HTMLElement {
     // shortcuts like `G` must not fire while the user is typing.
     if (event.target instanceof HTMLInputElement) return
 
+    // Space arms the pan gesture; the cursor announces it.
+    if (event.key === ' ') {
+      event.preventDefault()
+      this.#spaceHeld = true
+      if (this.#panLast === null) this.style.cursor = 'grab'
+      return
+    }
+
     if (event.key.toLowerCase() === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       this.#toggleSnap()
       return
@@ -359,6 +402,15 @@ export class CadCanvas extends HTMLElement {
     if (next === undefined || next === this.#toolState) return
     this.#toolState = next
     this.invalidate()
+  }
+
+  #onKeyUp = (event: KeyboardEvent): void => {
+    if (event.target instanceof HTMLInputElement) return
+    if (event.key === ' ') {
+      this.#spaceHeld = false
+      // An in-flight pan keeps `grabbing` until the pointer is released.
+      if (this.#panLast === null) this.style.cursor = ''
+    }
   }
 
   #toggleSnap(): void {
@@ -532,11 +584,12 @@ export class CadCanvas extends HTMLElement {
 
   #onWheel = (event: WheelEvent): void => {
     event.preventDefault()
-    const canvas = this.#canvas
-    if (canvas === null) return
-    const rect = canvas.getBoundingClientRect()
-    const factor = Math.exp(-event.deltaY * 0.0015)
-    this.#viewport = zoomAt(this.#viewport, factor, event.clientX - rect.left, event.clientY - rect.top)
+    // Zoom anchors to the viewport centre — magnify what you're looking at,
+    // regardless of where the cursor sits. Trackpad pinch (wheel with
+    // ctrlKey) shares the centre anchor with a finer factor.
+    const strength = event.ctrlKey ? PINCH_ZOOM_STRENGTH : WHEEL_ZOOM_STRENGTH
+    const factor = Math.exp(-event.deltaY * strength)
+    this.#viewport = zoomAt(this.#viewport, factor, this.clientWidth / 2, this.clientHeight / 2)
     this.invalidate()
   }
 }
