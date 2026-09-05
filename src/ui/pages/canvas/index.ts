@@ -16,7 +16,7 @@ import {
   type Entity,
   type EntityId,
 } from '../../../document.js'
-import { anchorPoint } from '../../../geometry.js'
+import { anchorPoint, nearestAnchor, type EntityAnchor } from '../../../geometry.js'
 import { hitTest } from '../../../hit-test.js'
 import { documentBounds, gridInterval, renderScene } from '../../../render.js'
 import { resolveSnapGrid, snapToGrid, type SnapMode } from '../../../snap.js'
@@ -47,6 +47,13 @@ export interface CadCanvasEventMap {
   'cad-canvas:snap': CustomEvent<{ mode: SnapMode }>
   /** An edit was refused — currently only by a locked layer. */
   'cad-canvas:blocked': CustomEvent<{ reason: 'locked' }>
+  /**
+   * A completed anchor pick (the properties panel's link flow): the
+   * nearest entity under the click with its nearest anchor.
+   */
+  'cad-canvas:anchor-picked': CustomEvent<{ id: EntityId; corner: EntityAnchor; world: WorldPoint }>
+  /** The pick mode was dismissed (Escape or a tool switch) with no pick. */
+  'cad-canvas:anchor-pick-cancelled': CustomEvent<null>
 }
 
 /** The available tool set. Tools are stateless, so instances are shared. */
@@ -97,6 +104,8 @@ export class CadCanvas extends HTMLElement {
   #textAbort: AbortController | null = null
   #spaceHeld = false
   #panLast: { x: number; y: number } | null = null
+  /** Non-null while the transient anchor-pick mode is armed. */
+  #anchorPick: { previousTool: Tool } | null = null
 
   constructor() {
     super()
@@ -150,6 +159,7 @@ export class CadCanvas extends HTMLElement {
     cancelAnimationFrame(this.#rafId)
     this.#spaceHeld = false
     this.#panLast = null
+    this.#anchorPick = null
     this.style.cursor = ''
   }
 
@@ -187,6 +197,9 @@ export class CadCanvas extends HTMLElement {
 
   /** Switch the active tool; any in-progress gesture or selection is reset. */
   setTool(id: ToolId): void {
+    // A tool switch supersedes a pending anchor pick; the cancel event lets
+    // the mediator clear its pick hint.
+    if (this.#anchorPick !== null) this.#cancelAnchorPick()
     const tool = TOOLS[id]
     if (tool === undefined || tool === this.#tool) return
     this.#closeTextInput()
@@ -198,6 +211,64 @@ export class CadCanvas extends HTMLElement {
 
   getTool(): ToolId {
     return this.#tool.id
+  }
+
+  /**
+   * Arm the transient anchor-pick mode (the properties panel's link flow):
+   * the next pointerdown picks the nearest entity under the click and its
+   * nearest anchor (`cad-canvas:anchor-picked`) instead of routing to the
+   * active tool, which is stored and restored untouched. Escape (or any
+   * tool switch) cancels; focus moves here so Escape is reachable.
+   */
+  beginAnchorPick(): void {
+    if (this.#anchorPick !== null) return
+    this.#closeTextInput()
+    this.#anchorPick = { previousTool: this.#tool }
+    this.style.cursor = 'crosshair'
+    this.focus()
+    this.invalidate()
+  }
+
+  /** Leave pick mode with no pick; the mediator clears its hint on this. */
+  #cancelAnchorPick(): void {
+    this.#endAnchorPick()
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:anchor-pick-cancelled', { bubbles: true, composed: true, detail: null })
+    )
+  }
+
+  #endAnchorPick(): void {
+    const pick = this.#anchorPick
+    this.#anchorPick = null
+    // Picking never routes through the tool, so this is usually a no-op —
+    // the restore keeps the "previous tool" promise true regardless.
+    if (pick !== null && this.#tool !== pick.previousTool) {
+      this.#tool = pick.previousTool
+      this.#toolState = this.#tool.init()
+    }
+    this.style.cursor = ''
+    this.invalidate()
+  }
+
+  /** Resolve a pick-mode click to the nearest entity anchor under it. */
+  #pickAnchor(raw: WorldPoint): void {
+    // The resolved world, so a linked entity is picked where it renders.
+    const resolved = resolveDocument(this.#document)
+    const tolerance = SELECT_TOLERANCE_PX / this.#viewport.scale
+    const hit = hitTest(resolved, raw, tolerance)
+    // A miss — or an anchor-less entity (text, dim) — keeps the pick mode
+    // armed: Escape is the only exit short of a successful pick.
+    if (hit === null) return
+    const anchor = nearestAnchor(hit, raw)
+    if (anchor === null) return
+    this.#endAnchorPick()
+    this.dispatchEvent(
+      new CustomEvent('cad-canvas:anchor-picked', {
+        bubbles: true,
+        composed: true,
+        detail: { id: hit.id, corner: anchor.corner, world: anchor.point },
+      })
+    )
   }
 
   /** Wall band thickness (mm) committed by the wall tool; palette page state. */
@@ -347,6 +418,15 @@ export class CadCanvas extends HTMLElement {
     const rect = canvas.getBoundingClientRect()
     const raw = screenToWorld(this.#viewport, event.clientX - rect.left, event.clientY - rect.top)
 
+    // Anchor-pick mode intercepts every gesture: a pointerdown picks the
+    // nearest entity anchor, moves only feed the status-bar readout, and
+    // nothing reaches the active tool.
+    if (this.#anchorPick !== null) {
+      if (event.type === 'pointerdown') this.#pickAnchor(raw)
+      this.#emitPointer(raw, event.buttons)
+      return
+    }
+
     // In select mode a click picks the nearest entity; the hit test keeps
     // the raw pointer so selection feels precise even when snapping is on.
     // Everything downstream sees the resolved world: refs applied, so
@@ -379,11 +459,15 @@ export class CadCanvas extends HTMLElement {
     this.#syncTextInput()
     this.invalidate()
 
+    this.#emitPointer(world, event.buttons)
+  }
+
+  #emitPointer(world: WorldPoint, buttons: number): void {
     this.dispatchEvent(
       new CustomEvent('cad-canvas:pointer', {
         bubbles: true,
         composed: true,
-        detail: { world, buttons: event.buttons },
+        detail: { world, buttons },
       })
     )
   }
@@ -392,6 +476,13 @@ export class CadCanvas extends HTMLElement {
     // The inline text editor handles its own keys (Enter/Escape); canvas
     // shortcuts like `G` must not fire while the user is typing.
     if (event.target instanceof HTMLInputElement) return
+
+    // Escape first leaves anchor-pick mode; other shortcuts stay live.
+    if (this.#anchorPick !== null && event.key === 'Escape') {
+      event.preventDefault()
+      this.#cancelAnchorPick()
+      return
+    }
 
     // Space arms the pan gesture; the cursor announces it.
     if (event.key === ' ') {

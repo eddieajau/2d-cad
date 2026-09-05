@@ -289,6 +289,123 @@ describe('app-shell', () => {
     })
   })
 
+  describe('reference linking', () => {
+    /**
+     * Two rects drawn through the canvas so they sit in the shell's
+     * history: parent (0,0)–(500,-300), child (600,-400)–(700,-500)
+     * (world is y-up, so screen deltas negate).
+     */
+    function makeLinkScene(): { shell: HTMLElement; canvas: CadCanvas; parentId: string; childId: string } {
+      const { shell, canvas } = makeDrawableShell()
+      canvas.setTool('rect')
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 500, 300)
+      pointer(canvas, 'pointerdown', 600, 400)
+      pointer(canvas, 'pointerup', 700, 500)
+      canvas.setTool('select')
+      const [parent, child] = canvas.getDocument().entities
+      return { shell, canvas, parentId: parent!.id, childId: child!.id }
+    }
+
+    function pickParent(shell: HTMLElement): void {
+      shell.querySelector('properties-panel')!.querySelector<HTMLButtonElement>('button[data-link="pick"]')!.click()
+    }
+
+    it('the pick flow writes the ref capturing the current placement', () => {
+      const { shell, canvas, parentId, childId } = makeLinkScene()
+      const bar = shell.querySelector('status-bar')!
+
+      // Select the child, then arm the pick via the panel's Link… button.
+      pointer(canvas, 'pointerdown', 650, 450)
+      pointer(canvas, 'pointerup', 650, 450)
+      expect(canvas.getSelection()).toBe(childId)
+      pickParent(shell)
+
+      expect(bar.querySelector('.status-hint')?.textContent).toBe('Click the entity to link to')
+      expect(canvas.style.cursor).toBe('crosshair')
+
+      // Click just inside the parent near its NW corner (0, 0).
+      pointer(canvas, 'pointerdown', 5, 5)
+
+      const child = canvas.getDocument().entities.find(entity => entity.id === childId)
+      // Child's NW anchor (600,-400) minus the parent's NW (0, 0).
+      expect(child?.type === 'rect' && child.ref).toEqual({ id: parentId, corner: 'nw', dx: 600, dy: -400 })
+      // The pick did not disturb the selection, and the hint is spent.
+      expect(canvas.getSelection()).toBe(childId)
+      expect(bar.querySelector('.status-hint')?.textContent).toBe('')
+      // The panel flipped to the linked view.
+      const panel = shell.querySelector('properties-panel')!
+      expect(panel.querySelector('.prop-link-summary')?.textContent).toContain(parentId)
+      expect(panel.querySelector('button[data-link="unlink"]')).not.toBeNull()
+
+      shell.remove()
+    })
+
+    it('picking the selected entity as its own parent is rejected with a hint', () => {
+      const { shell, canvas, childId } = makeLinkScene()
+      const bar = shell.querySelector('status-bar')!
+
+      pointer(canvas, 'pointerdown', 650, 450)
+      pointer(canvas, 'pointerup', 650, 450)
+      pickParent(shell)
+
+      // Click on the child itself.
+      pointer(canvas, 'pointerdown', 650, 450)
+
+      const child = canvas.getDocument().entities.find(entity => entity.id === childId)
+      expect(child?.type === 'rect' && child.ref).toBeUndefined()
+      expect(bar.querySelector('.status-hint')?.textContent).toBe('An entity cannot link to itself')
+
+      shell.remove()
+    })
+
+    it('Escape on the canvas cancels the pick and clears the hint', () => {
+      const { shell, canvas, childId } = makeLinkScene()
+      const bar = shell.querySelector('status-bar')!
+
+      pointer(canvas, 'pointerdown', 650, 450)
+      pointer(canvas, 'pointerup', 650, 450)
+      pickParent(shell)
+
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+      expect(bar.querySelector('.status-hint')?.textContent).toBe('')
+      expect(canvas.style.cursor).toBe('')
+      const child = canvas.getDocument().entities.find(entity => entity.id === childId)
+      expect(child?.type === 'rect' && child.ref).toBeUndefined()
+
+      shell.remove()
+    })
+
+    it('Unlink removes the ref, re-pushes the panel, and is undoable', () => {
+      const { shell, canvas, parentId, childId } = makeLinkScene()
+
+      // Link the child to the parent's NW corner through the pick flow, so
+      // the link itself sits in the history for the undo assertion.
+      pointer(canvas, 'pointerdown', 650, 450)
+      pointer(canvas, 'pointerup', 650, 450)
+      pickParent(shell)
+      pointer(canvas, 'pointerdown', 5, 5)
+
+      const panel = shell.querySelector('properties-panel')!
+      expect(panel.querySelector('.prop-link-summary')?.textContent).toContain(parentId)
+      panel.querySelector<HTMLButtonElement>('button[data-link="unlink"]')!.click()
+
+      const child = canvas.getDocument().entities.find(entity => entity.id === childId)
+      expect(child?.type === 'rect' && child.ref).toBeUndefined()
+      // The panel re-pushed to the unlinked view.
+      expect(panel.querySelector('button[data-link="pick"]')).not.toBeNull()
+      expect(panel.querySelector('.prop-input[data-key="x"]')).not.toBeNull()
+
+      // Unlinking is undoable like any edit.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+      const restored = canvas.getDocument().entities.find(entity => entity.id === childId)
+      expect(restored?.type === 'rect' && restored.ref).toEqual({ id: parentId, corner: 'nw', dx: 600, dy: -400 })
+
+      shell.remove()
+    })
+  })
+
   describe('undo/redo', () => {
     function shortcut(key: string, modifiers: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }): void {
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...modifiers }))

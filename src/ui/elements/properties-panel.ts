@@ -3,18 +3,23 @@
  * @license   MIT
  */
 
-import type { Entity, EntityId } from '../../document.js'
+import type { AnchorCorner, Entity, EntityId } from '../../document.js'
 import { escapeHtml } from '../lib/escape.js'
 import './entity-colour.js'
 
 export interface PropertiesPanelChange {
   id: EntityId
-  /** Field keys validated against the panel's per-type spec, values typed. */
-  patch: Record<string, number | string>
+  /**
+   * Field keys validated against the panel's per-type spec, values typed.
+   * An `undefined` value (currently only `ref`) removes the member.
+   */
+  patch: Record<string, number | string | undefined>
 }
 
 export interface PropertiesPanelEventMap {
   'properties-panel:change': CustomEvent<PropertiesPanelChange>
+  /** The Link… button asked for a parent pick on the canvas. */
+  'properties-panel:pick-parent': CustomEvent<null>
 }
 
 type FieldKind = 'number' | 'text' | 'select'
@@ -70,6 +75,23 @@ const REF_FIELDS: readonly FieldSpec[] = [
   { key: 'dy', label: 'dy (from anchor) mm', kind: 'number', step: 1 },
 ]
 
+/** Human labels for a ref's parent anchor ("wall-3 · NE corner"). */
+const ANCHOR_LABELS: Record<AnchorCorner, string> = {
+  nw: 'NW corner',
+  ne: 'NE corner',
+  se: 'SE corner',
+  sw: 'SW corner',
+  n: 'north point',
+  e: 'east point',
+  s: 'south point',
+  w: 'west point',
+  start: 'start point',
+  end: 'end point',
+}
+
+/** The entity types whose union members carry a `ref`. */
+const REFABLE: readonly Entity['type'][] = ['line', 'circle', 'rect', 'wall']
+
 function fieldsFor(entity: Entity): readonly FieldSpec[] {
   const hasRef = 'ref' in entity && entity.ref !== undefined
   const positionKeys = POSITION_KEYS[entity.type]
@@ -102,8 +124,9 @@ function validate(entity: Entity, key: string, value: number): string | null {
  * emitted as `properties-panel:change` for the mediator to map onto
  * `updateEntity`. Invalid values are rejected with a field-level message and
  * no event. Linked entities edit the ref's dx/dy instead of stored
- * coordinates — the link owns position (full link editing is ticket 024).
- * The colour section composes `<entity-colour>` for the same selection.
+ * coordinates — the link owns position — and the "Linked to" section links
+ * (pick-parent flow), retargets (dx/dy), and unlinks. The colour section
+ * composes `<entity-colour>` for the same selection.
  */
 export class PropertiesPanel extends HTMLElement {
   #entity: Entity | null = null
@@ -138,7 +161,32 @@ export class PropertiesPanel extends HTMLElement {
       .join('')
     this.innerHTML = `
       <div class="prop-rows">${rows}</div>
+      ${this.#linkHtml(this.#entity)}
       <entity-colour></entity-colour>
+    `
+  }
+
+  /**
+   * The "Linked to" section: a Link… button while the selection carries no
+   * ref (pick-parent flow), or the parent anchor summary plus Unlink while
+   * it does. The dx/dy inputs stay in the rows above — same commit path.
+   * Absent for entity types that cannot carry a ref (text, dim).
+   */
+  #linkHtml(entity: Entity): string {
+    // The section follows the *type*, not the current ref state: an
+    // unlinked rect still offers Link… . Text and dim cannot carry a ref.
+    if (!REFABLE.includes(entity.type)) return ''
+    const ref = 'ref' in entity ? entity.ref : undefined
+    const summary =
+      ref === undefined
+        ? '<button type="button" class="prop-link-pick" data-link="pick">Link…</button>'
+        : `<p class="prop-link-summary">${escapeHtml(ref.id)} · ${ANCHOR_LABELS[ref.corner]}</p>
+           <button type="button" class="prop-link-unlink" data-link="unlink">Unlink</button>`
+    return `
+      <div class="prop-link">
+        <p class="prop-link-title">Linked to</p>
+        ${summary}
+      </div>
     `
   }
 
@@ -177,6 +225,7 @@ export class PropertiesPanel extends HTMLElement {
     // whose `change` already carries the commit.
     this.addEventListener('focusout', this.#onFocusout, opts)
     this.addEventListener('change', this.#onChange, opts)
+    this.addEventListener('click', this.#onLinkClick, opts)
   }
 
   cleanup(): void {
@@ -204,6 +253,19 @@ export class PropertiesPanel extends HTMLElement {
   #onChange = (event: Event): void => {
     const select = event.target
     if (select instanceof HTMLSelectElement) this.#commit(select)
+  }
+
+  /** The "Linked to" section's buttons: pick a parent, or drop the ref. */
+  #onLinkClick = (event: MouseEvent): void => {
+    const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>('button[data-link]')
+    if (button === null || button === undefined) return
+    if (button.dataset.link === 'pick') {
+      this.dispatchEvent(
+        new CustomEvent('properties-panel:pick-parent', { bubbles: true, composed: true, detail: null })
+      )
+    } else {
+      this.#emit({ ref: undefined })
+    }
   }
 
   /** Restore the committed value and clear any error message. */
@@ -275,7 +337,7 @@ export class PropertiesPanel extends HTMLElement {
     if (error !== null && error !== undefined) error.hidden = true
   }
 
-  #emit(patch: Record<string, number | string>): void {
+  #emit(patch: Record<string, number | string | undefined>): void {
     const entity = this.#entity
     if (entity === null) return
     this.dispatchEvent(

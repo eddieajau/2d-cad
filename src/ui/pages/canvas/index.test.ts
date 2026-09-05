@@ -891,6 +891,124 @@ describe('cad-canvas', () => {
     })
   })
 
+  describe('anchor pick', () => {
+    /** Canvas with one rect at the world origin (0,0)–(500,300). */
+    function makePickScene(): CadCanvas {
+      const el = makeCanvas()
+      stubCapture(el)
+      el.setViewport({ offsetX: 0, offsetY: 0, scale: 1 })
+      el.setDocument(addEntity(createDocument(), { id: 'parent', type: 'rect', x: 0, y: 0, w: 500, h: 300 }))
+      el.setTool('select')
+      return el
+    }
+
+    it('beginAnchorPick intercepts one click, dispatching the nearest anchor', () => {
+      const el = makePickScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:anchor-picked', event => events.push(event as CustomEvent))
+
+      el.beginAnchorPick()
+      expect(document.activeElement).toBe(el)
+      expect(el.style.cursor).toBe('crosshair')
+
+      // Screen (502, -302) is world (502, 302) — just outside the NE corner.
+      pointer(el, 'pointerdown', 502, -302)
+
+      expect(events).toHaveLength(1)
+      expect(events[0].detail).toEqual({ id: 'parent', corner: 'ne', world: { x: 500, y: 300 } })
+      // Pick mode ended: cursor restored, tool untouched.
+      expect(el.style.cursor).toBe('')
+      expect(el.getTool()).toBe('select')
+
+      el.remove()
+    })
+
+    it('the nearest anchor wins over the click point', () => {
+      const el = makePickScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:anchor-picked', event => events.push(event as CustomEvent))
+
+      el.beginAnchorPick()
+      // World (20, 280) is closest to the NW corner (0, 300).
+      pointer(el, 'pointerdown', 20, -280)
+
+      expect(events[0].detail).toMatchObject({ corner: 'nw', world: { x: 0, y: 300 } })
+
+      el.remove()
+    })
+
+    it('intercepts exactly one click, then the tool routes again', () => {
+      const el = makePickScene()
+      const events: CustomEvent[] = []
+      el.addEventListener('cad-canvas:anchor-picked', event => events.push(event as CustomEvent))
+
+      el.beginAnchorPick()
+      pointer(el, 'pointerdown', 502, -302)
+      pointer(el, 'pointerdown', 502, -302)
+
+      expect(events).toHaveLength(1)
+      // Normal routing resumed: a click on the rect selects it.
+      pointer(el, 'pointerup', 502, -302)
+      expect(el.getSelection()).toBe('parent')
+
+      el.remove()
+    })
+
+    it('a miss keeps pick mode armed', () => {
+      const el = makePickScene()
+      const picked: CustomEvent[] = []
+      const cancelled: CustomEvent[] = []
+      el.addEventListener('cad-canvas:anchor-picked', event => picked.push(event as CustomEvent))
+      el.addEventListener('cad-canvas:anchor-pick-cancelled', event => cancelled.push(event as CustomEvent))
+
+      el.beginAnchorPick()
+      pointer(el, 'pointerdown', 2000, -2000)
+      expect(picked).toHaveLength(0)
+      expect(el.style.cursor).toBe('crosshair')
+
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      expect(cancelled).toHaveLength(1)
+      expect(el.style.cursor).toBe('')
+
+      el.remove()
+    })
+
+    it('Escape cancels without dispatching a pick', () => {
+      const el = makePickScene()
+      const picked: CustomEvent[] = []
+      const cancelled: CustomEvent[] = []
+      el.addEventListener('cad-canvas:anchor-picked', event => picked.push(event as CustomEvent))
+      el.addEventListener('cad-canvas:anchor-pick-cancelled', event => cancelled.push(event as CustomEvent))
+
+      el.beginAnchorPick()
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+      expect(picked).toHaveLength(0)
+      expect(cancelled).toHaveLength(1)
+      expect(el.style.cursor).toBe('')
+      // Routing restored: the select tool picks again.
+      pointer(el, 'pointerdown', 250, -150)
+      expect(el.getSelection()).toBe('parent')
+
+      el.remove()
+    })
+
+    it('a tool switch cancels a pending pick', () => {
+      const el = makePickScene()
+      const cancelled: CustomEvent[] = []
+      el.addEventListener('cad-canvas:anchor-pick-cancelled', event => cancelled.push(event as CustomEvent))
+
+      el.beginAnchorPick()
+      el.setTool('line')
+
+      expect(cancelled).toHaveLength(1)
+      expect(el.style.cursor).toBe('')
+      expect(el.getTool()).toBe('line')
+
+      el.remove()
+    })
+  })
+
   describe('navigation', () => {
     /** Sized canvas at a non-default viewport so pan/zoom deltas are visible. */
     function makeNavCanvas(): CadCanvas {

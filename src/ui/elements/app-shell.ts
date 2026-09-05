@@ -20,7 +20,9 @@ import {
   type DrawingDocument,
   type Entity,
   type EntityId,
+  type EntityRef,
 } from '../../document.js'
+import { anchorPoint, type EntityAnchor } from '../../geometry.js'
 import { canRedo, canUndo, commit, createHistory, current, redo, undo, type History } from '../../history.js'
 import { downloadDocument, loadLocal, openDocument, saveLocal } from '../../persistence.js'
 import type { SnapMode } from '../../snap.js'
@@ -140,9 +142,12 @@ export class AppShell extends HTMLElement {
     this.addEventListener('layer-panel:change', this.#onLayerChange, opts)
     this.addEventListener('entity-colour:change', this.#onEntityColour, opts)
     this.addEventListener('properties-panel:change', this.#onPropertiesChange, opts)
+    this.addEventListener('properties-panel:pick-parent', this.#onPickParent, opts)
     this.addEventListener('cad-canvas:commit', this.#onDocChange, opts)
     this.addEventListener('cad-canvas:delete', this.#onDocChange, opts)
     this.addEventListener('cad-canvas:blocked', this.#onBlocked, opts)
+    this.addEventListener('cad-canvas:anchor-picked', this.#onAnchorPicked, opts)
+    this.addEventListener('cad-canvas:anchor-pick-cancelled', this.#onPickCancelled, opts)
     this.addEventListener('cad-canvas:pointer', this.#onPointerReadout, opts)
     this.addEventListener('cad-canvas:snap', this.#onSnapChange, opts)
     this.addEventListener('cad-canvas:selection', this.#onSelectionChange, opts)
@@ -405,13 +410,23 @@ export class AppShell extends HTMLElement {
     this.#history = commit(this.#history, next)
     canvas.setDocument(next)
     this.#scheduleAutosave(next)
-    // The committed values already sit in the panel's fields; a re-push
-    // here would only steal focus from the next field being edited.
+    // Link/unlink restructures the panel (summary ↔ Link…, position rows ↔
+    // dx/dy), so it is re-pushed; plain value edits are not — a re-push here
+    // would only steal focus from the next field being edited.
+    if ('ref' in patch) this.#syncProperties()
     this.#syncEntityColour()
   }
 
   /** A property patch narrowed onto the model's `updateEntity`. */
-  #applyPropertyPatch(doc: DrawingDocument, entity: Entity, patch: Record<string, number | string>): DrawingDocument {
+  #applyPropertyPatch(
+    doc: DrawingDocument,
+    entity: Entity,
+    patch: Record<string, number | string | undefined>
+  ): DrawingDocument {
+    // An explicit `ref` key is the Unlink button's removal: `{ ref: undefined }`.
+    if ('ref' in patch) {
+      return updateEntity(doc, entity.id, { ref: patch.ref as EntityRef | undefined })
+    }
     const ref = 'ref' in entity ? entity.ref : undefined
     if (ref !== undefined && ('dx' in patch || 'dy' in patch)) {
       return updateEntity(doc, entity.id, {
@@ -425,6 +440,61 @@ export class AppShell extends HTMLElement {
     // The panel validates keys against its per-type field spec; the record
     // widens at the event boundary and narrows back onto the model here.
     return updateEntity(doc, entity.id, patch as Parameters<typeof updateEntity>[2])
+  }
+
+  /** The panel's Link… button: arm the canvas pick and prompt for the parent. */
+  #onPickParent = (): void => {
+    const canvas = this.querySelector('cad-canvas')
+    if (canvas === null) return
+    canvas.beginAnchorPick()
+    this.querySelector('status-bar')?.setHint('Click the entity to link to')
+  }
+
+  /** Pick mode dismissed without a pick — the prompt hint goes with it. */
+  #onPickCancelled = (): void => {
+    this.querySelector('status-bar')?.setHint(null)
+  }
+
+  /**
+   * A completed parent pick: the selected entity hangs a reference off the
+   * picked parent anchor, with dx/dy set so the link captures the current
+   * relative placement (linking never moves anything). Committed through
+   * the same history path as every other edit.
+   */
+  #onAnchorPicked = (event: Event): void => {
+    const { id, corner, world } = (event as CustomEvent<{ id: EntityId; corner: EntityAnchor; world: WorldPoint }>)
+      .detail
+    this.querySelector('status-bar')?.setHint(null)
+    const canvas = this.querySelector('cad-canvas')
+    const doc = canvas?.getDocument()
+    const childId = canvas?.getSelection() ?? null
+    if (canvas === null || canvas === undefined || doc === undefined || childId === null) return
+    // Self-link guard: the picked entity cannot be its own parent.
+    if (id === childId) {
+      this.querySelector('status-bar')?.setHint('An entity cannot link to itself')
+      return
+    }
+    const child = getEntity(doc, childId)
+    if (child === undefined) return
+    if (!isEditable(doc, child)) {
+      this.querySelector('status-bar')?.setHint('That layer is locked')
+      return
+    }
+    // The ref resolves through the shared corner vocabulary: both parent
+    // and child are read at `corner`, so the child must have that anchor.
+    const childAnchor = anchorPoint(child, corner)
+    if (childAnchor === null) {
+      this.querySelector('status-bar')?.setHint('That anchor does not exist on the selection')
+      return
+    }
+    const ref: EntityRef = { id, corner, dx: childAnchor.x - world.x, dy: childAnchor.y - world.y }
+    const next = updateEntity(doc, child.id, { ref })
+    this.#history = commit(this.#history, next)
+    canvas.setDocument(next)
+    this.#scheduleAutosave(next)
+    // Re-push so the panel flips from Link… to the summary + dx/dy + Unlink.
+    this.#syncProperties()
+    this.#syncEntityColour()
   }
 
   #onBlocked = (event: Event): void => {

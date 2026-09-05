@@ -264,4 +264,43 @@ describe('properties-panel', () => {
     expect(events).toEqual([{ id: 'e7', patch: { dx: 30 } }])
     el.remove()
   })
+
+  it('unlinked refable entities show Link… which emits pick-parent', () => {
+    const el = makePanel()
+    el.setEntity(RECT)
+    const link = el.querySelector<HTMLButtonElement>('button[data-link="pick"]')
+    expect(link?.textContent).toBe('Link…')
+
+    const picked: Event[] = []
+    el.addEventListener('properties-panel:pick-parent', event => picked.push(event))
+    link!.click()
+
+    expect(picked).toHaveLength(1)
+    el.remove()
+  })
+
+  it('linked entities show the parent summary and Unlink emits ref removal', () => {
+    const el = makePanel()
+    el.setEntity(LINKED_RECT)
+    expect(el.querySelector('.prop-link-summary')?.textContent).toBe('e4 · NW corner')
+    expect(el.querySelector('button[data-link="pick"]')).toBeNull()
+
+    const events: PropertiesPanelChange[] = []
+    el.addEventListener('properties-panel:change', event =>
+      events.push((event as CustomEvent<PropertiesPanelChange>).detail)
+    )
+    el.querySelector<HTMLButtonElement>('button[data-link="unlink"]')!.click()
+
+    expect(events).toEqual([{ id: 'e7', patch: { ref: undefined } }])
+    el.remove()
+  })
+
+  it('text and dim have no link section', () => {
+    const el = makePanel()
+    el.setEntity(TEXT)
+    expect(el.querySelector('.prop-link')).toBeNull()
+    el.setEntity(DIM)
+    expect(el.querySelector('.prop-link')).toBeNull()
+    el.remove()
+  })
 })
