@@ -207,30 +207,30 @@ describe('app-shell', () => {
   })
 
   describe('properties panel', () => {
-    it('maps a wall thickness patch onto updateEntity through the history', () => {
+    it('maps a thickness patch onto updateEntity through the history', () => {
       const { shell, canvas } = makeDrawableShell()
 
-      // Commit a wall with the default 270 mm band.
-      canvas.setTool('wall')
+      // Commit a hairline rect, then thicken it from the properties panel.
+      canvas.setTool('rect')
       pointer(canvas, 'pointerdown', 0, 0)
       pointer(canvas, 'pointerup', 4000, 3000)
-      const wall = canvas.getDocument().entities[0]
-      expect(wall?.type).toBe('wall')
+      const rect = canvas.getDocument().entities[0]
+      expect(rect?.type).toBe('rect')
 
       shell.querySelector('properties-panel')!.dispatchEvent(
         new CustomEvent('properties-panel:change', {
-          detail: { id: wall!.id, patch: { thickness: 110 } },
+          detail: { id: rect!.id, patch: { thickness: 110 } },
           bubbles: true,
           composed: true,
         })
       )
       const edited = canvas.getDocument().entities[0]
-      expect(edited?.type === 'wall' && edited.thickness).toBe(110)
+      expect(edited?.type === 'rect' && edited.thickness).toBe(110)
 
       // Property edits are undoable like any other.
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
       const restored = canvas.getDocument().entities[0]
-      expect(restored?.type === 'wall' && restored.thickness).toBe(270)
+      expect(restored?.type === 'rect' && restored.thickness).toBeUndefined()
 
       shell.remove()
     })

@@ -7,7 +7,6 @@ import type { ToolId } from '../../tools/types.js'
 
 export interface ToolPaletteEventMap {
   'tool-palette:select': CustomEvent<{ tool: ToolId }>
-  'tool-palette:thickness': CustomEvent<{ thickness: number }>
   /** Typed dx/dy (mm) committed on Enter from the offset tool's entry row. */
   'tool-palette:offset': CustomEvent<{ dx: number; dy: number; link: boolean }>
   /** Live dx/dy from the offset inputs; null when a field is empty or invalid. */
@@ -25,7 +24,6 @@ const TOOL_LABELS: Record<ToolId, string> = {
   circle: 'Circle',
   text: 'Text',
   dim: 'Dim',
-  wall: 'Wall',
   offset: 'Offset',
 }
 
@@ -39,7 +37,6 @@ const TOOL_ICONS: Record<ToolId, string> = {
     '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   text: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v2.5M8 3v10M6 13h4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   dim: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 11V5m12 6V5M2 8h12M4 6.5 2 8l2 1.5M12 6.5 14 8l-2 1.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
-  wall: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="6" width="6" height="4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
   offset:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="6.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
 }
@@ -50,13 +47,8 @@ const SHORTCUTS: Record<string, ToolId> = {
   c: 'circle',
   t: 'text',
   d: 'dim',
-  w: 'wall',
   o: 'offset',
 }
-
-/** Wall band thickness page state defaults, in millimetres. */
-const THICKNESS_DEFAULT = 270
-const THICKNESS_STEP = 10
 
 function parseToolId(value: string | null | undefined): ToolId | null {
   return value != null && value in TOOL_LABELS ? (value as ToolId) : null
@@ -120,12 +112,6 @@ export class ToolPalette extends HTMLElement {
           `
         )
         .join('') +
-      // The wall tool's thickness setting. Hidden unless the wall tool is
-      // active (syncDisplay); the wrapped label names the input.
-      `<label class="wall-thickness" hidden>
-         Thickness mm
-         <input type="number" min="0" step="${THICKNESS_STEP}" value="${THICKNESS_DEFAULT}" />
-       </label>` +
       // The offset tool's exact dx/dy entry. Hidden unless the offset tool
       // is active (syncDisplay); Enter commits both values, Escape cancels.
       // The Link toggle attaches a positional reference to the source
@@ -145,7 +131,6 @@ export class ToolPalette extends HTMLElement {
     this.addEventListener('click', this.#onClick, opts)
     this.addEventListener('keydown', this.#onButtonKey, opts)
     this.addEventListener('keydown', this.#onOffsetKey, opts)
-    this.addEventListener('input', this.#onThicknessInput, opts)
     this.addEventListener('input', this.#onOffsetInput, opts)
     // Shortcuts live here so palette buttons and keys emit the same event.
     document.addEventListener('keydown', this.#onShortcut, opts)
@@ -161,8 +146,6 @@ export class ToolPalette extends HTMLElement {
       const tool = parseToolId(button.dataset.tool)
       button.setAttribute('aria-pressed', String(tool === this.#active))
     }
-    const thickness = this.querySelector('.wall-thickness')
-    if (thickness instanceof HTMLElement) thickness.hidden = this.#active !== 'wall'
     const offsetRow = this.querySelector('.offset-entry')
     if (offsetRow instanceof HTMLElement) offsetRow.hidden = this.#active !== 'offset'
   }
@@ -196,22 +179,6 @@ export class ToolPalette extends HTMLElement {
     const tool = SHORTCUTS[event.key.toLowerCase()]
     if (tool === undefined || !this.#tools.includes(tool)) return
     this.#select(tool)
-  }
-
-  #onThicknessInput = (event: Event): void => {
-    const input = event.target
-    if (!(input instanceof HTMLInputElement) || !input.matches('.wall-thickness input')) return
-    const raw = input.value.trim()
-    if (raw === '') return
-    const thickness = Number(raw)
-    if (!Number.isFinite(thickness) || thickness < 0) return
-    this.dispatchEvent(
-      new CustomEvent('tool-palette:thickness', {
-        bubbles: true,
-        composed: true,
-        detail: { thickness },
-      })
-    )
   }
 
   #select(tool: ToolId): void {

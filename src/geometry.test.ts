@@ -5,41 +5,51 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { anchorPoint, dimLine, dimOffset, nearestAnchor, textBounds, wallBand } from './geometry.js'
-import type { WallGeometry } from './geometry.js'
+import { anchorPoint, circleBand, dimLine, dimOffset, nearestAnchor, rectBand, textBounds } from './geometry.js'
 
 const p = (x: number, y: number) => ({ x, y })
 
-function wall(alignment: WallGeometry['alignment'], thickness = 2): WallGeometry {
-  return { id: 'w1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness, alignment }
-}
-
-describe('wallBand', () => {
-  it('grows an outer-aligned wall inward from the drawn envelope', () => {
-    const { outer, inner } = wallBand(wall('outer'))
-    expect(outer).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
-    expect(inner).toEqual({ minX: 2, minY: 2, maxX: 8, maxY: 2 })
+describe('rectBand', () => {
+  it('insets the inner face by the thickness per side from the drawn envelope', () => {
+    const { outer, inner } = rectBand({ x: 0, y: 0, w: 10, h: 10, thickness: 2 })
+    expect(outer).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 10 })
+    expect(inner).toEqual({ minX: 2, minY: 2, maxX: 8, maxY: 8 })
   })
 
-  it('grows an inner-aligned wall outward from the drawn envelope', () => {
-    const { outer, inner } = wallBand(wall('inner'))
-    expect(outer).toEqual({ minX: -2, minY: -2, maxX: 12, maxY: 6 })
-    expect(inner).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
+  it('normalises envelopes drawn corner-to-corner (negative w/h)', () => {
+    const { outer, inner } = rectBand({ x: 2, y: 2, w: -10, h: -10, thickness: 2 })
+    expect(outer).toEqual({ minX: -8, minY: -8, maxX: 2, maxY: 2 })
+    expect(inner).toEqual({ minX: -6, minY: -6, maxX: 0, maxY: 0 })
   })
 
-  it('straddles the drawn envelope for centre alignment', () => {
-    const { outer, inner } = wallBand(wall('centre'))
-    expect(outer).toEqual({ minX: -1, minY: -1, maxX: 11, maxY: 5 })
-    expect(inner).toEqual({ minX: 1, minY: 1, maxX: 9, maxY: 3 })
-  })
-
-  it('collapses onto the envelope for degenerate thickness', () => {
-    const { outer, inner } = wallBand(wall('outer', 0))
-    expect(outer).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
+  it('collapses onto the envelope for thickness 0 (the hairline)', () => {
+    const { outer, inner } = rectBand({ x: 0, y: 0, w: 10, h: 4 })
     expect(inner).toEqual(outer)
+  })
 
-    // Negative thickness is clamped to the same degenerate band.
-    expect(wallBand(wall('centre', -5)).inner).toEqual(wallBand(wall('centre', 0)).inner)
+  it('clamps a closed void to a 1 mm inner face, centred in the envelope', () => {
+    // 4-wide envelope with 3-thick edges: the void would invert, so the
+    // inner face clamps to 1 mm centred.
+    const { inner } = rectBand({ x: 0, y: 0, w: 4, h: 4, thickness: 3 })
+    expect(inner).toEqual({ minX: 1.5, minY: 1.5, maxX: 2.5, maxY: 2.5 })
+
+    // Negative thickness clamps to 0 — the band collapses onto the envelope.
+    const negative = rectBand({ x: 0, y: 0, w: 4, h: 4, thickness: -3 })
+    expect(negative.inner).toEqual(negative.outer)
+  })
+})
+
+describe('circleBand', () => {
+  it('grows the band inward from the drawn radius', () => {
+    expect(circleBand(5, 2)).toEqual({ outer: 5, inner: 3 })
+  })
+
+  it('collapses onto the drawn circle for thickness 0', () => {
+    expect(circleBand(5)).toEqual({ outer: 5, inner: 5 })
+  })
+
+  it('clamps a closed annulus to a 0.5 mm inner radius (1 mm void)', () => {
+    expect(circleBand(1, 3)).toEqual({ outer: 1, inner: 0.5 })
   })
 })
 
@@ -115,11 +125,6 @@ describe('anchorPoint', () => {
     expect(anchorPoint(rect, 'se')).toEqual(p(2, 2))
   })
 
-  it('resolves wall corners the same way as rect', () => {
-    expect(anchorPoint(wall('outer'), 'sw')).toEqual(p(0, 0))
-    expect(anchorPoint(wall('outer'), 'ne')).toEqual(p(10, 4))
-  })
-
   it('resolves circle cardinal points', () => {
     const circle = { id: 'c1', type: 'circle' as const, cx: 10, cy: 20, r: 5 }
     expect(anchorPoint(circle, 'n')).toEqual(p(10, 25))
@@ -150,16 +155,15 @@ describe('anchorPoint', () => {
 })
 
 describe('nearestAnchor', () => {
-  it('picks the nearest corner of a rect or wall', () => {
+  it('picks the nearest corner of a rect', () => {
     const envelope = {
-      id: 'w1',
-      type: 'wall' as const,
+      id: 'r1',
+      type: 'rect' as const,
       x: 0,
       y: 0,
       w: 100,
       h: 60,
       thickness: 270,
-      alignment: 'outer' as const,
     }
     expect(nearestAnchor(envelope, p(90, 10))).toEqual({ corner: 'se', point: p(100, 0) })
     expect(nearestAnchor(envelope, p(-3, 58))).toEqual({ corner: 'nw', point: p(0, 60) })

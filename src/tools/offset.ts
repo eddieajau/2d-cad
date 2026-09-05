@@ -37,7 +37,7 @@ function offsetClone(source: OffsetSource, dx: number, dy: number): EntityDraft 
 }
 
 /**
- * The classic drafting offset, digitised: click a source entity (rect, wall,
+ * The classic drafting offset, digitised: click a source entity (rect,
  * circle, or line) — the anchor nearest the click becomes the reference
  * point — then moving previews a ghost copy whose delta follows the pointer.
  * Exact entry commits on Enter with the dx/dy typed into the palette's

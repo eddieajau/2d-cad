@@ -16,7 +16,10 @@ import {
 } from './document.js'
 import {
   documentBounds,
+  drawCircle,
   drawDim,
+  drawLine,
+  drawRect,
   drawText,
   formatLength,
   gridInterval,
@@ -338,6 +341,66 @@ describe('renderScene', () => {
     // …and the clone is previewed dashed at the dragged position.
     expect(calls).toContainEqual({ method: 'setLineDash', args: [[9, 3]] })
     expect(calls).toContainEqual({ method: 'lineTo', args: [60, 270] })
+  })
+})
+
+describe('thickness rendering', () => {
+  it('renders a thickness-0 rect exactly as the hairline strokeRect', () => {
+    const { ctx, calls } = createCtxStub()
+    drawRect(ctx, { id: 'r1', type: 'rect', x: 0, y: 0, w: 30, h: 10 }, viewport)
+    expect(calls).toContainEqual({ method: 'strokeRect', args: [0, 290, 30, 10] })
+    expect(calls.some(c => c.method === 'fill')).toBe(false)
+  })
+
+  it('renders a thick rect as an even-odd band with both faces stroked', () => {
+    const { ctx, calls } = createCtxStub()
+    drawRect(ctx, { id: 'r1', type: 'rect', x: 0, y: 0, w: 30, h: 10, thickness: 3 }, viewport)
+    // Outer face (0,0)–(30,10) and inner face (3,3)–(27,7), world y flipped.
+    expect(calls).toContainEqual({ method: 'rect', args: [0, 290, 30, 10] })
+    expect(calls).toContainEqual({ method: 'rect', args: [3, 293, 24, 4] })
+    expect(calls).toContainEqual({ method: 'fill', args: ['evenodd'] })
+    expect(calls).toContainEqual({ method: 'strokeRect', args: [0, 290, 30, 10] })
+    expect(calls).toContainEqual({ method: 'strokeRect', args: [3, 293, 24, 4] })
+  })
+
+  it('clamps a closed rect void to a 1 mm inner face, centred', () => {
+    const { ctx, calls } = createCtxStub()
+    drawRect(ctx, { id: 'r1', type: 'rect', x: 0, y: 0, w: 4, h: 4, thickness: 10 }, viewport)
+    // Inner face (1.5,1.5)–(2.5,2.5) in world; the band still fills even-odd.
+    expect(calls).toContainEqual({ method: 'rect', args: [1.5, 297.5, 1, 1] })
+    expect(calls).toContainEqual({ method: 'fill', args: ['evenodd'] })
+  })
+
+  it('renders a thick circle as an annulus: outer and inner arcs, even-odd fill', () => {
+    const { ctx, calls } = createCtxStub()
+    drawCircle(ctx, { id: 'c1', type: 'circle', cx: 100, cy: 100, r: 20, thickness: 5 }, viewport)
+    const arcs = calls.filter(c => c.method === 'arc')
+    expect(arcs).toHaveLength(2)
+    expect(arcs[0]).toEqual({ method: 'arc', args: [100, 200, 20, 0, 2 * Math.PI] })
+    expect(arcs[1]).toEqual({ method: 'arc', args: [100, 200, 15, 0, 2 * Math.PI] })
+    expect(calls).toContainEqual({ method: 'fill', args: ['evenodd'] })
+  })
+
+  it('renders a thickness-0 circle as the single hairline arc', () => {
+    const { ctx, calls } = createCtxStub()
+    drawCircle(ctx, { id: 'c1', type: 'circle', cx: 100, cy: 100, r: 20 }, viewport)
+    expect(calls.filter(c => c.method === 'arc')).toHaveLength(1)
+    expect(calls.some(c => c.method === 'fill')).toBe(false)
+  })
+
+  it('renders a thick line as a centred ribbon at the world width', () => {
+    const { ctx, calls } = createCtxStub()
+    drawLine(ctx, { id: 'l1', type: 'line', x1: 0, y1: 0, x2: 40, y2: 0, thickness: 4 }, viewport)
+    expect(calls).toContainEqual({ method: 'set:lineWidth', args: [4] })
+    // The stroke happens inside save/restore so the caller's width survives.
+    const set = calls.findIndex(c => c.method === 'set:lineWidth' && c.args[0] === 4)
+    expect(calls[set - 1]).toEqual({ method: 'save', args: [] })
+    expect(calls[calls.length - 1]).toEqual({ method: 'restore', args: [] })
+  })
+
+  it('keeps thick entities bounded by their envelope', () => {
+    const thick = { id: 'e9', type: 'rect', layerId: 'layer-0', x: 0, y: 0, w: 100, h: 100, thickness: 270 } as const
+    expect(documentBounds(docWith(thick))).toEqual({ minX: 0, minY: 0, maxX: 100, maxY: 100 })
   })
 })
 

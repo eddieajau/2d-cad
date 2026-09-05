@@ -47,10 +47,10 @@ describe('status-bar', () => {
     el.remove()
   })
 
-  it('setSelection marks linked entities and walls', () => {
+  it('setSelection marks linked entities and thicknesses', () => {
     const el = makeBar()
     el.setSelection({ id: 'e4', thickness: 270, linked: true })
-    expect(el.querySelector('.status-selection')?.textContent).toBe('Selected: e4 — wall 270.00 mm — ↗ linked')
+    expect(el.querySelector('.status-selection')?.textContent).toBe('Selected: e4 — thickness 270.00 mm — ↗ linked')
     el.setSelection({ id: 'e5', linked: true })
     expect(el.querySelector('.status-selection')?.textContent).toBe('Selected: e5 — ↗ linked')
     el.remove()

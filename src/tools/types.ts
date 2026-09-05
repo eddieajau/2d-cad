@@ -6,17 +6,12 @@
 import type { DrawingDocument, Entity, EntityDraft, EntityId } from '../document.js'
 import type { Viewport, WorldPoint } from '../viewport.js'
 
-export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim' | 'wall' | 'offset'
+export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim' | 'offset'
 
 /** Snapshot of the drawing session handed to a tool with every event. */
 export interface ToolContext {
   readonly doc: DrawingDocument
   readonly viewport: Viewport
-  /**
-   * Wall tool page state: the thickness (mm) the palette input holds. Every
-   * tool sees it; only the wall tool consumes it.
-   */
-  readonly wallThickness: number
 }
 
 export interface ToolState {

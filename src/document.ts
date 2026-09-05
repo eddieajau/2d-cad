@@ -33,6 +33,11 @@ export interface LineEntity {
   y1: number
   x2: number
   y2: number
+  /**
+   * Physical band thickness in millimetres (world units); omitted = 0, the
+   * hairline. A line's band is centred on the path — it has no inside.
+   */
+  thickness?: number
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
   /** Optional positional reference; the ref's parent anchor wins on resolve. */
@@ -46,6 +51,11 @@ export interface CircleEntity {
   cx: number
   cy: number
   r: number
+  /**
+   * Physical band thickness in millimetres (world units); omitted = 0, the
+   * hairline. The drawn circle is the outer face; the band grows inward.
+   */
+  thickness?: number
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
   /** Optional positional reference; the ref's parent anchor wins on resolve. */
@@ -60,6 +70,12 @@ export interface RectEntity {
   y: number
   w: number
   h: number
+  /**
+   * Physical band thickness in millimetres (world units); omitted = 0, the
+   * hairline. The drawn rectangle is the outer face; the band grows inward
+   * (a 1000-wide rect with 100-thick edges has an 800 inner width).
+   */
+  thickness?: number
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
   /** Optional positional reference; the ref's parent anchor wins on resolve. */
@@ -96,15 +112,7 @@ export interface DimEntity {
 }
 
 /**
- * Which face of the wall the envelope (`x/y/w/h`) is: the wall band grows
- * from that face toward the opposite side. `'outer'` (the default when
- * drawing) means the drawn rectangle is the building's outer face and the
- * thickness extends inward.
- */
-export type WallAlignment = 'outer' | 'centre' | 'inner'
-
-/**
- * The named anchor a reference hangs off — a rect/wall corner, a circle
+ * The named anchor a reference hangs off — a rect corner, a circle
  * cardinal point, or a line endpoint. The names are exactly what
  * `anchorPoint` (geometry.ts) resolves, so one vocabulary serves drawing
  * anchors and reference positioning.
@@ -125,24 +133,7 @@ export interface EntityRef {
   dy: number
 }
 
-export interface WallEntity {
-  id: EntityId
-  type: 'wall'
-  layerId: EntityId
-  x: number
-  y: number
-  w: number
-  h: number
-  /** Physical band thickness in millimetres (world units). */
-  thickness: number
-  alignment: WallAlignment
-  /** Optional per-entity colour override; absent means "use the layer's". */
-  colour?: string
-  /** Optional positional reference; the ref's parent anchor wins on resolve. */
-  ref?: EntityRef
-}
-
-export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity | WallEntity
+export type Entity = LineEntity | CircleEntity | RectEntity | TextEntity | DimEntity
 
 /** Omit, distributed over unions so each member keeps its own keys. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -226,8 +217,6 @@ export function translateEntity(entity: Entity, dx: number, dy: number): Entity 
         x2: entity.x2 + dx,
         y2: entity.y2 + dy,
       }
-    case 'wall':
-      return { ...entity, x: entity.x + dx, y: entity.y + dy }
   }
 }
 
@@ -367,6 +356,18 @@ function parseRef(value: unknown): EntityRef {
   return value as EntityRef
 }
 
+/**
+ * Optional band thickness (millimetres): omitted means the hairline; a
+ * present value must be finite and non-negative.
+ */
+function parseThickness(record: Record<string, unknown>): number | undefined {
+  if (record.thickness === undefined) return undefined
+  if (typeof record.thickness !== 'number' || !Number.isFinite(record.thickness) || record.thickness < 0) {
+    throw new DocumentParseError('Entity "thickness" must be a non-negative finite number')
+  }
+  return record.thickness
+}
+
 function parseEntity(value: unknown): EntityDraft {
   if (typeof value !== 'object' || value === null) {
     throw new DocumentParseError('Entity must be an object')
@@ -387,16 +388,19 @@ function parseEntity(value: unknown): EntityDraft {
       if (!isFiniteRecord(record, ['x1', 'y1', 'x2', 'y2'])) {
         throw new DocumentParseError('Line entity has missing or non-finite coordinates')
       }
+      parseThickness(record)
       return value as LineEntity
     case 'circle':
       if (!isFiniteRecord(record, ['cx', 'cy', 'r'])) {
         throw new DocumentParseError('Circle entity has missing or non-finite values')
       }
+      parseThickness(record)
       return value as CircleEntity
     case 'rect':
       if (!isFiniteRecord(record, ['x', 'y', 'w', 'h'])) {
         throw new DocumentParseError('Rect entity has missing or non-finite values')
       }
+      parseThickness(record)
       return value as RectEntity
     case 'text':
       if (!isFiniteRecord(record, ['x', 'y', 'size'])) {
@@ -412,13 +416,38 @@ function parseEntity(value: unknown): EntityDraft {
       }
       return value as DimEntity
     case 'wall': {
+      // Migration from the dropped `wall` entity (ticket 017-era files):
+      // the wall becomes a rect with its thickness kept and its envelope
+      // baked so the OUTER face lands where the wall visually was —
+      // `outer` alignment keeps the envelope, `centre` expands it by
+      // thickness/2 per side, `inner` by thickness per side. Conversion
+      // happens at load; files are rewritten only on the next save.
       if (!isFiniteRecord(record, ['x', 'y', 'w', 'h', 'thickness'])) {
         throw new DocumentParseError('Wall entity has missing or non-finite values')
       }
-      if (record.alignment !== 'outer' && record.alignment !== 'centre' && record.alignment !== 'inner') {
+      const alignment = record.alignment
+      if (alignment !== 'outer' && alignment !== 'centre' && alignment !== 'inner') {
         throw new DocumentParseError('Wall entity must have an "alignment" of outer, centre, or inner')
       }
-      return value as WallEntity
+      const x = record.x as number
+      const y = record.y as number
+      const w = record.w as number
+      const h = record.h as number
+      const t = record.thickness as number
+      const grow = alignment === 'outer' ? 0 : alignment === 'centre' ? t / 2 : t
+      const rect: EntityDraft = {
+        id: record.id as string,
+        type: 'rect',
+        x: x - grow,
+        y: y - grow,
+        w: w + 2 * grow,
+        h: h + 2 * grow,
+        thickness: t,
+      }
+      if (record.layerId !== undefined) rect.layerId = record.layerId as EntityId
+      if (record.colour !== undefined) rect.colour = record.colour as string
+      if (record.ref !== undefined) rect.ref = parseRef(record.ref)
+      return rect
     }
     default:
       throw new DocumentParseError(`Unknown entity type: ${String(record.type)}`)

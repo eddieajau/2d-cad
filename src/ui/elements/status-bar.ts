@@ -61,7 +61,7 @@ export class StatusBar extends HTMLElement {
     if (this.#snap !== null) this.#snap.textContent = `Snap: ${mode === 'grid' ? 'on' : 'off'} (G)`
   }
 
-  /** Selected entity id (plus a wall's thickness and link state), or null when nothing is selected. */
+  /** Selected entity id (plus its thickness and link state), or null when nothing is selected. */
   setSelection(selection: { id: EntityId; thickness?: number; linked?: boolean } | null): void {
     this.#selectedId = selection?.id ?? null
     this.#selectedThickness = selection?.thickness
@@ -72,7 +72,7 @@ export class StatusBar extends HTMLElement {
       return
     }
     const parts = [`Selected: ${String(this.#selectedId)}`]
-    if (this.#selectedThickness !== undefined) parts.push(`wall ${formatCoord(this.#selectedThickness)} mm`)
+    if (this.#selectedThickness !== undefined) parts.push(`thickness ${formatCoord(this.#selectedThickness)} mm`)
     if (this.#selectedLinked === true) parts.push('↗ linked')
     this.#selection.textContent = parts.join(' — ')
   }

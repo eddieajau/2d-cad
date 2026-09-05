@@ -9,10 +9,10 @@ import { addEntity, addLayer, createDocument, updateLayer, type DrawingDocument,
 import {
   distanceToCircle,
   distanceToDim,
+  distanceToLine,
   distanceToLineSegment,
   distanceToRect,
   distanceToText,
-  distanceToWall,
   hitTest,
 } from './hit-test.js'
 
@@ -105,30 +105,65 @@ describe('distanceToDim', () => {
   })
 })
 
-describe('distanceToWall', () => {
+describe('distanceToRect with thickness', () => {
   // Envelope (0,0)–(20,10) drawn as the outer face; a 2 mm band grows inward,
   // so the inner void is (2,2)–(18,8).
-  const wall = { id: 'w1', type: 'wall', x: 0, y: 0, w: 20, h: 10, thickness: 2, alignment: 'outer' } as const
+  const band = { id: 'r1', type: 'rect', x: 0, y: 0, w: 20, h: 10, thickness: 2 } as const
 
   it('is zero on the band and both faces', () => {
-    expect(distanceToWall(p(1, 5), wall)).toBe(0)
-    expect(distanceToWall(p(0, 0), wall)).toBe(0)
-    expect(distanceToWall(p(18, 8), wall)).toBe(0)
+    expect(distanceToRect(p(1, 5), band)).toBe(0)
+    expect(distanceToRect(p(0, 0), band)).toBe(0)
+    expect(distanceToRect(p(18, 8), band)).toBe(0)
   })
 
   it('measures to the nearest inner face from inside the void', () => {
-    expect(distanceToWall(p(10, 5), wall)).toBe(3)
-    expect(distanceToWall(p(3.5, 7), wall)).toBe(1)
+    expect(distanceToRect(p(10, 5), band)).toBe(3)
+    expect(distanceToRect(p(3.5, 7), band)).toBe(1)
   })
 
   it('measures to the nearest band boundary outside', () => {
-    expect(distanceToWall(p(10, 12), wall)).toBe(2)
-    expect(distanceToWall(p(-3, 5), wall)).toBe(3)
+    expect(distanceToRect(p(10, 12), band)).toBe(2)
+    expect(distanceToRect(p(-3, 5), band)).toBe(3)
   })
 
-  it('is zero everywhere inside a wall whose thickness closes the envelope', () => {
-    const solid = { id: 'w2', type: 'wall', x: 0, y: 0, w: 20, h: 10, thickness: 50, alignment: 'outer' } as const
-    expect(distanceToWall(p(10, 5), solid)).toBe(0)
+  it('is zero everywhere except the clamped 1 mm core when the void closes', () => {
+    const solid = { id: 'r2', type: 'rect', x: 0, y: 0, w: 20, h: 10, thickness: 50 } as const
+    expect(distanceToRect(p(5, 5), solid)).toBe(0)
+    // Only the 1 mm clamped core (9.5,4.5)–(10.5,5.5) still measures.
+    expect(distanceToRect(p(10, 5), solid)).toBeCloseTo(0.5)
+  })
+})
+
+describe('distanceToCircle with thickness', () => {
+  const annulus = { id: 'c1', type: 'circle', cx: 0, cy: 0, r: 5, thickness: 2 } as const
+
+  it('is zero within the band and on both faces', () => {
+    expect(distanceToCircle(p(4, 0), annulus)).toBe(0)
+    expect(distanceToCircle(p(5, 0), annulus)).toBe(0)
+    expect(distanceToCircle(p(3, 0), annulus)).toBe(0)
+  })
+
+  it('measures to the inner face inside the void', () => {
+    expect(distanceToCircle(p(0, 0), annulus)).toBe(3)
+    expect(distanceToCircle(p(2, 0), annulus)).toBe(1)
+  })
+
+  it('measures to the outer face beyond the band', () => {
+    expect(distanceToCircle(p(0, 8), annulus)).toBe(3)
+  })
+})
+
+describe('distanceToLine with thickness', () => {
+  const ribbon = { id: 'l1', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0, thickness: 4 } as const
+
+  it('is zero within half the thickness of the centred path', () => {
+    expect(distanceToLine(p(5, 2), ribbon)).toBe(0)
+    expect(distanceToLine(p(5, -2), ribbon)).toBe(0)
+  })
+
+  it('measures the band overshoot beyond it', () => {
+    expect(distanceToLine(p(5, 3), ribbon)).toBe(1)
+    expect(distanceToLine(p(5, 5), ribbon)).toBe(3)
   })
 })
 
@@ -170,8 +205,8 @@ describe('hitTest', () => {
     expect(hitTest(annotated, p(5, -8), 0.5)?.id).toBe('e5')
   })
 
-  it('hits wall bands through the document', () => {
-    const walled = docWith({ id: 'e6', type: 'wall', x: 0, y: 0, w: 20, h: 10, thickness: 2, alignment: 'outer' })
+  it('hits thick-rect bands through the document', () => {
+    const walled = docWith({ id: 'e6', type: 'rect', x: 0, y: 0, w: 20, h: 10, thickness: 2 })
     expect(hitTest(walled, p(1, 5), 0.5)?.id).toBe('e6')
     // The inner void is a miss at a tight tolerance.
     expect(hitTest(walled, p(10, 5), 0.5)).toBeNull()

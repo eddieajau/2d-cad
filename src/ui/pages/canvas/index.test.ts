@@ -685,7 +685,7 @@ describe('cad-canvas', () => {
   })
 
   describe('offset tool', () => {
-    /** Canvas with a single wall envelope at the world origin. */
+    /** Canvas with a single 270-thick boundary rect at the world origin. */
     function makeOffsetScene(): CadCanvas {
       const el = makeCanvas()
       stubCapture(el)
@@ -693,13 +693,12 @@ describe('cad-canvas', () => {
       el.setDocument(
         addEntity(createDocument(), {
           id: 'src',
-          type: 'wall',
+          type: 'rect',
           x: 0,
           y: 0,
           w: 12000,
           h: 9000,
           thickness: 270,
-          alignment: 'outer',
         })
       )
       el.setTool('offset')
@@ -719,13 +718,12 @@ describe('cad-canvas', () => {
       expect(doc.entities).toHaveLength(2)
       expect(doc.entities[1]).toMatchObject({
         id: expect.any(String),
-        type: 'wall',
+        type: 'rect',
         x: -6000,
         y: -1500,
         w: 12000,
         h: 9000,
         thickness: 270,
-        alignment: 'outer',
       })
       expect(el.getSelection()).toBe(doc.entities[1]!.id)
       expect(events).toHaveLength(1)
@@ -748,7 +746,7 @@ describe('cad-canvas', () => {
 
       const clone = el.getDocument().entities[1]
       expect(clone).toMatchObject({
-        type: 'wall',
+        type: 'rect',
         x: -6000,
         y: -1500,
         ref: { id: 'src', corner: 'sw', dx: -6000, dy: -1500 },

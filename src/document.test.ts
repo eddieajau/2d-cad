@@ -31,7 +31,6 @@ import {
   type LineEntity,
   type RectEntity,
   type TextEntity,
-  type WallEntity,
 } from './document.js'
 import { anchorPoint } from './geometry.js'
 
@@ -144,7 +143,7 @@ describe('removeEntity', () => {
 })
 
 describe('translateEntity', () => {
-  const rect: RectEntity = { id: 'e3', type: 'rect', layerId: 'layer-0', x: 1, y: 2, w: 3, h: 4 }
+  const rect: RectEntity = { id: 'e3', type: 'rect', layerId: 'layer-0', x: 1, y: 2, w: 3, h: 4, thickness: 270 }
   const text: TextEntity = { id: 'e4', type: 'text', layerId: 'layer-0', x: 1, y: 2, text: 'note', size: 12 }
   const dim: DimEntity = { id: 'e5', type: 'dim', layerId: 'layer-0', x1: 0, y1: 0, x2: 10, y2: 0, offset: 3 }
 
@@ -170,20 +169,9 @@ describe('translateEntity', () => {
     expect(translateEntity(dim, 5, -1)).toEqual({ ...dim, x1: 5, y1: -1, x2: 15, y2: -1 })
   })
 
-  it('translates a wall envelope without touching thickness or alignment', () => {
-    const wall: WallEntity = {
-      id: 'e6',
-      type: 'wall',
-      layerId: 'layer-0',
-      x: 0,
-      y: 0,
-      w: 10,
-      h: 4,
-      thickness: 270,
-      alignment: 'outer',
-    }
-    const moved = translateEntity(wall, 5, -2)
-    expect(moved).toEqual({ ...wall, x: 5, y: -2 })
+  it('translates a rect without touching its thickness', () => {
+    const moved = translateEntity(rect, 5, -2)
+    expect(moved).toEqual({ ...rect, x: 6, y: 0 })
   })
 })
 
@@ -202,20 +190,27 @@ describe('serialize/deserialize round-trip', () => {
     expect(restored).toEqual(doc)
   })
 
-  it('round-trips a wall with thickness and alignment', () => {
-    const wall: WallEntity = {
+  it('round-trips thickness on line, circle, and rect entities', () => {
+    const thickLine: LineEntity = { ...line, thickness: 100 }
+    const thickCircle: CircleEntity = { ...circle, thickness: 50 }
+    const thickRect: RectEntity = {
       id: 'e6',
-      type: 'wall',
+      type: 'rect',
       layerId: 'layer-0',
       x: 0,
       y: 0,
       w: 8000,
       h: 6000,
       thickness: 270,
-      alignment: 'centre',
     }
-    const doc = addEntity(createDocument(), wall)
+    const doc = addEntity(addEntity(addEntity(createDocument(), thickLine), thickCircle), thickRect)
     expect(deserializeDocument(serializeDocument(doc))).toEqual(doc)
+  })
+
+  it('omits the thickness key for entities without one', () => {
+    const doc = addEntity(createDocument(), line)
+    const parsed = JSON.parse(serializeDocument(doc)) as { entities: Array<Record<string, unknown>> }
+    expect(Object.hasOwn(parsed.entities[0]!, 'thickness')).toBe(false)
   })
 
   it('round-trips a document with multiple layers', () => {
@@ -288,6 +283,15 @@ describe('deserializeDocument', () => {
     expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
   })
 
+  it('throws DocumentParseError on negative or non-finite thickness', () => {
+    for (const thickness of [-1, Infinity, NaN]) {
+      const json = JSON.stringify({
+        entities: [{ id: 'e1', type: 'rect', x: 0, y: 0, w: 10, h: 4, thickness }],
+      })
+      expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+    }
+  })
+
   it('throws DocumentParseError on a wall with missing values or a bad alignment', () => {
     const missing = JSON.stringify({ entities: [{ id: 'e1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness: 270 }] })
     expect(() => deserializeDocument(missing)).toThrow(DocumentParseError)
@@ -326,6 +330,74 @@ describe('deserializeDocument', () => {
   it('throws DocumentParseError on a non-string entity colour', () => {
     const json = JSON.stringify({ entities: [{ ...line, colour: true }] })
     expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+  })
+})
+
+describe('wall entity migration on load', () => {
+  const wallJson = (alignment: string): string =>
+    JSON.stringify({
+      entities: [{ id: 'e1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness: 2, alignment }],
+    })
+
+  it('bakes an outer-aligned wall onto its unchanged envelope', () => {
+    const [rect] = deserializeDocument(wallJson('outer')).entities
+    expect(rect).toEqual({ id: 'e1', type: 'rect', layerId: 'layer-0', x: 0, y: 0, w: 10, h: 4, thickness: 2 })
+  })
+
+  it('bakes a centre-aligned wall expanded by half the thickness per side', () => {
+    const [rect] = deserializeDocument(wallJson('centre')).entities
+    expect(rect).toEqual({ id: 'e1', type: 'rect', layerId: 'layer-0', x: -1, y: -1, w: 12, h: 6, thickness: 2 })
+  })
+
+  it('bakes an inner-aligned wall expanded by the full thickness per side', () => {
+    const [rect] = deserializeDocument(wallJson('inner')).entities
+    expect(rect).toEqual({ id: 'e1', type: 'rect', layerId: 'layer-0', x: -2, y: -2, w: 14, h: 8, thickness: 2 })
+  })
+
+  it('carries colour, layer, and refs across the migration', () => {
+    const json = JSON.stringify({
+      layers: [{ id: 'layer-1', name: 'X', visible: true, locked: false }],
+      entities: [
+        {
+          id: 'e1',
+          type: 'wall',
+          x: 0,
+          y: 0,
+          w: 10,
+          h: 4,
+          thickness: 2,
+          alignment: 'outer',
+          layerId: 'layer-1',
+          colour: '#ff0000',
+          ref: { id: 'e1', corner: 'nw', dx: 0, dy: 0 },
+        },
+      ],
+    })
+    const [rect] = deserializeDocument(json).entities
+    expect(rect).toEqual({
+      id: 'e1',
+      type: 'rect',
+      layerId: 'layer-1',
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 4,
+      thickness: 2,
+      colour: '#ff0000',
+      ref: { id: 'e1', corner: 'nw', dx: 0, dy: 0 },
+    })
+  })
+
+  it('old files load with no wall entities remaining', () => {
+    const json = JSON.stringify({
+      entities: [
+        { id: 'e1', type: 'wall', x: 0, y: 0, w: 10, h: 4, thickness: 2, alignment: 'outer' },
+        { id: 'e2', type: 'line', x1: 0, y1: 0, x2: 1, y2: 1 },
+      ],
+    })
+    const doc = deserializeDocument(json)
+    expect(doc.entities.map(entity => entity.type)).toEqual(['rect', 'line'])
+    expect(doc.entities).toHaveLength(2)
   })
 })
 
@@ -420,17 +492,16 @@ describe('layer operations', () => {
 })
 
 describe('entity references', () => {
-  /** A survey wall at the origin: anchors nw (0,9000) … se (12000,0). */
+  /** A survey boundary at the origin: anchors nw (0,9000) … se (12000,0). */
   function docWithSurvey(): ReturnType<typeof createDocument> {
     return addEntity(createDocument(), {
       id: 'survey',
-      type: 'wall',
+      type: 'rect',
       x: 0,
       y: 0,
       w: 12000,
       h: 9000,
       thickness: 270,
-      alignment: 'outer',
     })
   }
 

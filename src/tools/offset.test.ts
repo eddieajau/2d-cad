@@ -14,7 +14,6 @@ function makeCtx(doc: DrawingDocument): ToolContext {
   return {
     doc,
     viewport: { offsetX: 0, offsetY: 0, scale: 1 } satisfies Viewport,
-    wallThickness: 270,
   }
 }
 
@@ -23,24 +22,23 @@ const move = new PointerEvent('pointermove')
 const up = new PointerEvent('pointerup')
 const escape = new KeyboardEvent('keydown', { key: 'Escape' })
 
-/** A 270 wall envelope at the origin — the ticket's site-plan case. */
-function docWithWall(): DrawingDocument {
+/** A 270-thick boundary rect at the origin — the ticket's site-plan case. */
+function docWithBoundary(): DrawingDocument {
   return addEntity(createDocument(), {
     id: 'src',
-    type: 'wall',
+    type: 'rect',
     x: 0,
     y: 0,
     w: 12000,
     h: 9000,
     thickness: 270,
-    alignment: 'outer',
   })
 }
 
 describe('OffsetTool', () => {
   it('a source click picks the entity and its nearest anchor', () => {
     const tool = new OffsetTool()
-    const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    const state = tool.onPointerDown(makeCtx(docWithBoundary()), tool.init(), { x: 100, y: 100 }, down)
 
     expect(state.source?.entity.id).toBe('src')
     expect(state.source?.anchor).toEqual({ corner: 'sw', point: { x: 0, y: 0 } })
@@ -54,14 +52,14 @@ describe('OffsetTool', () => {
     expect(tool.onPointerDown(ctx, tool.init(), { x: 10, y: 10 }, down)).toEqual({})
 
     // With a flow active, a stray click keeps the picked source.
-    let state: OffsetToolState = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    let state: OffsetToolState = tool.onPointerDown(makeCtx(docWithBoundary()), tool.init(), { x: 100, y: 100 }, down)
     state = tool.onPointerDown(ctx, state, { x: 10, y: 10 }, down)
     expect(state.source?.entity.id).toBe('src')
   })
 
   it('moving previews a ghost clone tracking the pointer from the anchor', () => {
     const tool = new OffsetTool()
-    const ctx = makeCtx(docWithWall())
+    const ctx = makeCtx(docWithBoundary())
     let state = tool.onPointerDown(ctx, tool.init(), { x: 100, y: 100 }, down)
     const ghostId = state.source!.ghostId
 
@@ -69,20 +67,19 @@ describe('OffsetTool', () => {
     expect(state.delta).toEqual({ x: -6000, y: -1500 })
     expect(state.preview).toEqual({
       id: ghostId,
-      type: 'wall',
+      type: 'rect',
       layerId: 'layer-0',
       x: -6000,
       y: -1500,
       w: 12000,
       h: 9000,
       thickness: 270,
-      alignment: 'outer',
     })
   })
 
   it('pointerup never commits — exact entry ends the flow', () => {
     const tool = new OffsetTool()
-    const ctx = makeCtx(docWithWall())
+    const ctx = makeCtx(docWithBoundary())
     let state = tool.onPointerDown(ctx, tool.init(), { x: 100, y: 100 }, down)
     state = tool.onPointerMove(ctx, state, { x: 500, y: 500 }, move)
 
@@ -91,7 +88,7 @@ describe('OffsetTool', () => {
 
   it('typed dx/dy commits a clone at source anchor + (dx, dy) and selects it', () => {
     const tool = new OffsetTool()
-    let state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    let state = tool.onPointerDown(makeCtx(docWithBoundary()), tool.init(), { x: 100, y: 100 }, down)
     const ghostId = state.source!.ghostId
 
     const result = tool.onOffsetCommit(state, -6000, -1500)
@@ -99,14 +96,13 @@ describe('OffsetTool', () => {
       kind: 'add',
       entity: {
         id: ghostId,
-        type: 'wall',
+        type: 'rect',
         layerId: 'layer-0',
         x: -6000,
         y: -1500,
         w: 12000,
         h: 9000,
         thickness: 270,
-        alignment: 'outer',
       },
     })
     expect(result.select).toBe(ghostId)
@@ -115,7 +111,7 @@ describe('OffsetTool', () => {
 
   it('typed entry commits even when the pointer preview shows something else', () => {
     const tool = new OffsetTool()
-    const ctx = makeCtx(docWithWall())
+    const ctx = makeCtx(docWithBoundary())
     let state = tool.onPointerDown(ctx, tool.init(), { x: 100, y: 100 }, down)
     state = tool.onPointerMove(ctx, state, { x: 9000, y: 9000 }, move)
 
@@ -125,7 +121,7 @@ describe('OffsetTool', () => {
 
   it('Link on commits a ref-carrying clone anchored to the source', () => {
     const tool = new OffsetTool()
-    const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    const state = tool.onPointerDown(makeCtx(docWithBoundary()), tool.init(), { x: 100, y: 100 }, down)
     const ghostId = state.source!.ghostId
 
     const result = tool.onOffsetCommit(state, -6000, -1500, true)
@@ -133,14 +129,13 @@ describe('OffsetTool', () => {
       kind: 'add',
       entity: {
         id: ghostId,
-        type: 'wall',
+        type: 'rect',
         layerId: 'layer-0',
         x: -6000,
         y: -1500,
         w: 12000,
         h: 9000,
         thickness: 270,
-        alignment: 'outer',
         ref: { id: 'src', corner: 'sw', dx: -6000, dy: -1500 },
       },
     })
@@ -149,7 +144,7 @@ describe('OffsetTool', () => {
 
   it('Link off commits plain coordinates (the default)', () => {
     const tool = new OffsetTool()
-    const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    const state = tool.onPointerDown(makeCtx(docWithBoundary()), tool.init(), { x: 100, y: 100 }, down)
 
     const result = tool.onOffsetCommit(state, -6000, -1500)
     expect(result.commit).toEqual({
@@ -160,7 +155,7 @@ describe('OffsetTool', () => {
 
   it('a zero-delta commit is allowed as an explicit in-place stamp', () => {
     const tool = new OffsetTool()
-    const state = tool.onPointerDown(makeCtx(docWithWall()), tool.init(), { x: 100, y: 100 }, down)
+    const state = tool.onPointerDown(makeCtx(docWithBoundary()), tool.init(), { x: 100, y: 100 }, down)
 
     expect(tool.onOffsetCommit(state, 0, 0).commit).toMatchObject({ entity: { x: 0, y: 0 } })
   })
@@ -172,7 +167,7 @@ describe('OffsetTool', () => {
 
   it('typing both values pins the preview and freezes pointer tracking', () => {
     const tool = new OffsetTool()
-    const ctx = makeCtx(docWithWall())
+    const ctx = makeCtx(docWithBoundary())
     let state = tool.onPointerDown(ctx, tool.init(), { x: 100, y: 100 }, down)
 
     state = tool.onOffsetEntry(state, -6000, -1500)
@@ -185,7 +180,7 @@ describe('OffsetTool', () => {
 
   it('clearing either field releases the pin back to pointer tracking', () => {
     const tool = new OffsetTool()
-    const ctx = makeCtx(docWithWall())
+    const ctx = makeCtx(docWithBoundary())
     let state = tool.onPointerDown(ctx, tool.init(), { x: 100, y: 100 }, down)
     state = tool.onOffsetEntry(state, -6000, -1500)
 
@@ -204,7 +199,7 @@ describe('OffsetTool', () => {
 
   it('Escape unwinds preview back to source selection, then stays idle', () => {
     const tool = new OffsetTool()
-    const ctx = makeCtx(docWithWall())
+    const ctx = makeCtx(docWithBoundary())
     let state = tool.onPointerDown(ctx, tool.init(), { x: 100, y: 100 }, down)
     state = tool.onPointerMove(ctx, state, { x: 500, y: 500 }, move)
 

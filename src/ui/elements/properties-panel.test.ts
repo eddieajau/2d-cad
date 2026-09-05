@@ -10,19 +10,8 @@ import './properties-panel.js'
 import type { PropertiesPanel, PropertiesPanelChange } from './properties-panel.js'
 
 const LINE: Entity = { id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 20 }
-const RECT: Entity = { id: 'e2', type: 'rect', layerId: 'layer-0', x: 10, y: 20, w: 100, h: 50 }
+const RECT: Entity = { id: 'e2', type: 'rect', layerId: 'layer-0', x: 10, y: 20, w: 100, h: 50, thickness: 270 }
 const CIRCLE: Entity = { id: 'e3', type: 'circle', layerId: 'layer-0', cx: 5, cy: 6, r: 12 }
-const WALL: Entity = {
-  id: 'e4',
-  type: 'wall',
-  layerId: 'layer-0',
-  x: 0,
-  y: 0,
-  w: 4000,
-  h: 3000,
-  thickness: 270,
-  alignment: 'outer',
-}
 const TEXT: Entity = { id: 'e5', type: 'text', layerId: 'layer-0', x: 1, y: 2, text: 'Driveway', size: 200 }
 const DIM: Entity = { id: 'e6', type: 'dim', layerId: 'layer-0', x1: 0, y1: 0, x2: 100, y2: 0, offset: 15 }
 const LINKED_RECT: Entity = {
@@ -87,22 +76,17 @@ describe('properties-panel', () => {
     const el = makePanel()
 
     el.setEntity(LINE)
-    expect(keys(el)).toEqual(['x1', 'y1', 'x2', 'y2'])
+    expect(keys(el)).toEqual(['x1', 'y1', 'x2', 'y2', 'thickness'])
     expect(field(el, 'x2').value).toBe('40')
 
     el.setEntity(RECT)
-    expect(keys(el)).toEqual(['x', 'y', 'w', 'h'])
+    expect(keys(el)).toEqual(['x', 'y', 'w', 'h', 'thickness'])
     expect(field(el, 'h').value).toBe('50')
+    expect(field(el, 'thickness').value).toBe('270')
 
     el.setEntity(CIRCLE)
-    expect(keys(el)).toEqual(['cx', 'cy', 'r'])
+    expect(keys(el)).toEqual(['cx', 'cy', 'r', 'thickness'])
     expect(field(el, 'r').value).toBe('12')
-
-    el.setEntity(WALL)
-    expect(keys(el)).toEqual(['x', 'y', 'w', 'h', 'thickness', 'alignment'])
-    expect(field(el, 'thickness').value).toBe('270')
-    const alignment = el.querySelector<HTMLSelectElement>('.prop-input[data-key="alignment"]')!
-    expect(alignment.value).toBe('outer')
 
     el.setEntity(TEXT)
     expect(keys(el)).toEqual(['text', 'x', 'y', 'size'])
@@ -116,13 +100,12 @@ describe('properties-panel', () => {
     el.remove()
   })
 
-  it('labels every input and keeps the alignment options fixed', () => {
+  it('labels every input, including the thickness row', () => {
     const el = makePanel()
-    el.setEntity(WALL)
+    el.setEntity(RECT)
     const labels = [...el.querySelectorAll('label.prop-field')].map(label => label.textContent ?? '')
     for (const label of labels) expect(label.trim()).not.toBe('')
-    const alignment = el.querySelector<HTMLSelectElement>('.prop-input[data-key="alignment"]')!
-    expect([...alignment.options].map(option => option.value)).toEqual(['outer', 'centre', 'inner'])
+    expect(labels.some(label => label.includes('thickness'))).toBe(true)
     el.remove()
   })
 
@@ -181,22 +164,6 @@ describe('properties-panel', () => {
     el.remove()
   })
 
-  it('emits the alignment select on change', () => {
-    const el = makePanel()
-    el.setEntity(WALL)
-    const events: PropertiesPanelChange[] = []
-    el.addEventListener('properties-panel:change', event =>
-      events.push((event as CustomEvent<PropertiesPanelChange>).detail)
-    )
-
-    const alignment = el.querySelector<HTMLSelectElement>('.prop-input[data-key="alignment"]')!
-    alignment.value = 'centre'
-    alignment.dispatchEvent(new Event('change', { bubbles: true }))
-
-    expect(events).toEqual([{ id: 'e4', patch: { alignment: 'centre' } }])
-    el.remove()
-  })
-
   it('Escape reverts the field and emits nothing', () => {
     const el = makePanel()
     el.setEntity(LINE)
@@ -232,12 +199,12 @@ describe('properties-panel', () => {
     expect(events).toEqual([{ id: 'e3', patch: { r: 30 } }])
     expect(radiusError.hidden).toBe(true)
 
-    el.setEntity(WALL)
-    const w = field(el, 'w')
-    w.value = '0'
-    commitWithEnter(el, w)
+    el.setEntity(RECT)
+    const thickness = field(el, 'thickness')
+    thickness.value = '-5'
+    commitWithEnter(el, thickness)
     expect(events).toHaveLength(1)
-    expect(w.closest('label')!.querySelector<HTMLElement>('.prop-error')!.hidden).toBe(false)
+    expect(thickness.closest('label')!.querySelector<HTMLElement>('.prop-error')!.hidden).toBe(false)
     expect(events.at(-1)).toEqual({ id: 'e3', patch: { r: 30 } })
 
     el.remove()
@@ -247,7 +214,7 @@ describe('properties-panel', () => {
     const el = makePanel()
     el.setEntity(LINKED_RECT)
     // Position rows become the ref's dx/dy; the size rows stay editable.
-    expect(keys(el)).toEqual(['dx', 'dy', 'w', 'h'])
+    expect(keys(el)).toEqual(['dx', 'dy', 'w', 'h', 'thickness'])
     const labels = [...el.querySelectorAll('label.prop-field')].map(label => label.textContent ?? '')
     expect(labels.some(label => label.includes('from anchor'))).toBe(true)
     expect(el.querySelector('.prop-input[data-key="x"]')).toBeNull()

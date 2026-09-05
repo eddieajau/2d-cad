@@ -43,17 +43,9 @@ const numField = (key: string, step = 1, min?: number): FieldSpec => ({
 
 /** The editable fields of each entity type; world units are millimetres. */
 const FIELDS: Record<Entity['type'], readonly FieldSpec[]> = {
-  line: [numField('x1'), numField('y1'), numField('x2'), numField('y2')],
-  rect: [numField('x'), numField('y'), numField('w'), numField('h')],
-  circle: [numField('cx'), numField('cy'), numField('r', 1, 0)],
-  wall: [
-    numField('x'),
-    numField('y'),
-    numField('w'),
-    numField('h'),
-    numField('thickness', 10, 0),
-    { key: 'alignment', label: 'alignment', kind: 'select', options: ['outer', 'centre', 'inner'] },
-  ],
+  line: [numField('x1'), numField('y1'), numField('x2'), numField('y2'), numField('thickness', 10, 0)],
+  rect: [numField('x'), numField('y'), numField('w'), numField('h'), numField('thickness', 10, 0)],
+  circle: [numField('cx'), numField('cy'), numField('r', 1, 0), numField('thickness', 10, 0)],
   text: [{ key: 'text', label: 'content', kind: 'text' }, numField('x'), numField('y'), numField('size')],
   dim: [numField('x1'), numField('y1'), numField('x2'), numField('y2'), numField('offset')],
 }
@@ -67,7 +59,6 @@ const POSITION_KEYS: Partial<Record<Entity['type'], readonly string[]>> = {
   line: ['x1', 'y1', 'x2', 'y2'],
   circle: ['cx', 'cy'],
   rect: ['x', 'y'],
-  wall: ['x', 'y'],
 }
 
 const REF_FIELDS: readonly FieldSpec[] = [
@@ -75,7 +66,7 @@ const REF_FIELDS: readonly FieldSpec[] = [
   { key: 'dy', label: 'dy (from anchor) mm', kind: 'number', step: 1 },
 ]
 
-/** Human labels for a ref's parent anchor ("wall-3 · NE corner"). */
+/** Human labels for a ref's parent anchor ("rect-3 · NE corner"). */
 const ANCHOR_LABELS: Record<AnchorCorner, string> = {
   nw: 'NW corner',
   ne: 'NE corner',
@@ -90,7 +81,7 @@ const ANCHOR_LABELS: Record<AnchorCorner, string> = {
 }
 
 /** The entity types whose union members carry a `ref`. */
-const REFABLE: readonly Entity['type'][] = ['line', 'circle', 'rect', 'wall']
+const REFABLE: readonly Entity['type'][] = ['line', 'circle', 'rect']
 
 function fieldsFor(entity: Entity): readonly FieldSpec[] {
   const hasRef = 'ref' in entity && entity.ref !== undefined
@@ -113,7 +104,6 @@ function fieldValue(entity: Entity, spec: FieldSpec): string {
 /** A field-level rejection message, or null when the value is acceptable. */
 function validate(entity: Entity, key: string, value: number): string | null {
   if (key === 'r' && value < 0) return 'Radius cannot be negative'
-  if (entity.type === 'wall' && (key === 'w' || key === 'h') && value <= 0) return 'Wall size cannot be zero'
   if (key === 'thickness' && value < 0) return 'Thickness cannot be negative'
   return null
 }

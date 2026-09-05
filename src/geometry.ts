@@ -3,14 +3,7 @@
  * @license   MIT
  */
 
-import {
-  type AnchorCorner,
-  type DimEntity,
-  type Entity,
-  type EntityDraft,
-  type TextEntity,
-  type WallEntity,
-} from './document.js'
+import { type AnchorCorner, type DimEntity, type Entity, type EntityDraft, type TextEntity } from './document.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -26,9 +19,6 @@ export type TextGeometry = Omit<TextEntity, 'layerId'>
 
 /** A dim entity without its layer reference. */
 export type DimGeometry = Omit<DimEntity, 'layerId'>
-
-/** A wall entity without its layer reference. */
-export type WallGeometry = Omit<WallEntity, 'layerId'>
 
 /**
  * Approximate advance width per character, in em, for the single drafting
@@ -80,7 +70,7 @@ export function dimOffset(first: WorldPoint, second: WorldPoint, p: WorldPoint):
 }
 
 /** Normalised world rect from an envelope drawn corner-to-corner. */
-function envelopeRect(e: WallGeometry): WorldRect {
+function envelopeRect(e: { x: number; y: number; w: number; h: number }): WorldRect {
   return {
     minX: Math.min(e.x, e.x + e.w),
     minY: Math.min(e.y, e.y + e.h),
@@ -89,14 +79,51 @@ function envelopeRect(e: WallGeometry): WorldRect {
   }
 }
 
-/** Inset a rect inward by `t` on every face; inverted when `t` exceeds a span. */
-function insetRect(r: WorldRect, t: number): WorldRect {
-  return { minX: r.minX + t, minY: r.minY + t, maxX: r.maxX - t, maxY: r.maxY - t }
+/**
+ * The inner-face span kept when a thickness band would close a shape's
+ * void (dimension ≤ 2 × thickness): clamped to 1 mm, centred —
+ * deterministic and documented rather than inverted geometry.
+ */
+export const MIN_INNER_SPAN = 1
+
+/**
+ * The thickness band of a rect entity: the outer face (the drawn envelope,
+ * normalised) and the inner face inset by the thickness per side. The
+ * drawn geometry is the outer face — the band grows inward. Thickness 0
+ * collapses the band onto the envelope (the hairline); a thickness that
+ * would close the void clamps the inner face to {@link MIN_INNER_SPAN},
+ * centred in the envelope.
+ */
+export function rectBand(e: { x: number; y: number; w: number; h: number; thickness?: number }): {
+  outer: WorldRect
+  inner: WorldRect
+} {
+  const outer = envelopeRect(e)
+  const t = Math.max(0, e.thickness ?? 0)
+  if (t === 0) return { outer, inner: outer }
+  const span = (a: number, b: number): number => Math.max(MIN_INNER_SPAN, b - a - 2 * t)
+  const w = span(outer.minX, outer.maxX)
+  const h = span(outer.minY, outer.maxY)
+  const cx = (outer.minX + outer.maxX) / 2
+  const cy = (outer.minY + outer.maxY) / 2
+  return { outer, inner: { minX: cx - w / 2, minY: cy - h / 2, maxX: cx + w / 2, maxY: cy + h / 2 } }
+}
+
+/**
+ * The thickness band of a circle entity: the outer radius is the drawn
+ * radius and the band grows inward, so the inner radius is `r − thickness`
+ * (clamped to {@link MIN_INNER_SPAN}/2 so a closed annulus keeps a 1 mm
+ * void). Thickness 0 collapses the band onto the drawn circle (hairline).
+ */
+export function circleBand(r: number, thickness?: number): { outer: number; inner: number } {
+  const t = Math.max(0, thickness ?? 0)
+  if (t === 0) return { outer: r, inner: r }
+  return { outer: r, inner: Math.max(MIN_INNER_SPAN / 2, r - t) }
 }
 
 /**
  * Named reference points on an entity, used by the offset tool to anchor a
- * typed dx/dy (and by reference positioning): rect/wall corners (of the
+ * typed dx/dy (and by reference positioning): rect corners (of the
  * normalised envelope, world y-up), circle cardinal points, and line
  * endpoints. The names are the model's `AnchorCorner` union, shared with
  * `EntityRef.corner`.
@@ -108,7 +135,6 @@ const ANCHORS: Record<Entity['type'], readonly EntityAnchor[]> = {
   line: ['start', 'end'],
   circle: ['n', 'e', 's', 'w'],
   rect: ['nw', 'ne', 'sw', 'se'],
-  wall: ['nw', 'ne', 'sw', 'se'],
   text: [],
   dim: [],
 }
@@ -119,8 +145,7 @@ const ANCHORS: Record<Entity['type'], readonly EntityAnchor[]> = {
  */
 export function anchorPoint(entity: EntityDraft, corner: EntityAnchor): WorldPoint | null {
   switch (entity.type) {
-    case 'rect':
-    case 'wall': {
+    case 'rect': {
       const minX = Math.min(entity.x, entity.x + entity.w)
       const maxX = Math.max(entity.x, entity.x + entity.w)
       const minY = Math.min(entity.y, entity.y + entity.h)
@@ -183,26 +208,4 @@ export function nearestAnchor(entity: EntityDraft, p: WorldPoint): { corner: Ent
     }
   }
   return best
-}
-
-/**
- * The wall band for an entity: the outer face rect and the inner face rect,
- * both normalised. The envelope as drawn is the face named by `alignment`
- * and the thickness grows to the opposite side — `'outer'` keeps the drawn
- * rect as the band's outer boundary, `'inner'` as its inner boundary, and
- * `'centre'` straddles it by thickness/2. Degenerate (≤ 0) thickness
- * collapses the band onto the drawn rect: inner equals outer.
- */
-export function wallBand(e: WallGeometry): { outer: WorldRect; inner: WorldRect } {
-  const envelope = envelopeRect(e)
-  const t = Math.max(0, e.thickness)
-  if (t === 0) return { outer: envelope, inner: envelope }
-  switch (e.alignment) {
-    case 'outer':
-      return { outer: envelope, inner: insetRect(envelope, t) }
-    case 'inner':
-      return { outer: insetRect(envelope, -t), inner: envelope }
-    case 'centre':
-      return { outer: insetRect(envelope, -t / 2), inner: insetRect(envelope, t / 2) }
-  }
 }

@@ -111,7 +111,7 @@ export class AppShell extends HTMLElement {
       <aside class="side-panel" role="complementary" aria-label="Panels">
         <section class="panel-section">
           <h2>Tools</h2>
-          <tool-palette tools="select,line,rect,circle,text,dim,wall,offset" active="line"></tool-palette>
+          <tool-palette tools="select,line,rect,circle,text,dim,offset" active="line"></tool-palette>
         </section>
         <section class="panel-section">
           <h2>Properties</h2>
@@ -135,7 +135,6 @@ export class AppShell extends HTMLElement {
     this.addEventListener('app-shell:action', this.#onAction, opts)
     this.querySelector<HTMLInputElement>('.file-input')?.addEventListener('change', this.#onFileChange, opts)
     this.addEventListener('tool-palette:select', this.#onToolSelect, opts)
-    this.addEventListener('tool-palette:thickness', this.#onThicknessChange, opts)
     this.addEventListener('tool-palette:offset', this.#onOffsetCommit, opts)
     this.addEventListener('tool-palette:offset-entry', this.#onOffsetEntry, opts)
     this.addEventListener('tool-palette:escape', this.#onOffsetEscape, opts)
@@ -263,12 +262,6 @@ export class AppShell extends HTMLElement {
     const tool = (event as CustomEvent<{ tool: ToolId }>).detail.tool
     this.querySelector('cad-canvas')?.setTool(tool)
     this.querySelector('tool-palette')?.setAttribute('active', tool)
-  }
-
-  /** Wall thickness from the palette input, pushed into the canvas tool. */
-  #onThicknessChange = (event: Event): void => {
-    const { thickness } = (event as CustomEvent<{ thickness: number }>).detail
-    this.querySelector('cad-canvas')?.setWallThickness(thickness)
   }
 
   /** Typed dx/dy (plus Link state) from the palette, pushed into the canvas tool. */
@@ -529,7 +522,12 @@ export class AppShell extends HTMLElement {
         ? null
         : {
             id,
-            thickness: entity?.type === 'wall' ? entity.thickness : undefined,
+            // Any geometry entity's thickness readout (line, rect, circle);
+            // only a non-zero band is worth announcing.
+            thickness:
+              entity !== undefined && 'thickness' in entity && (entity.thickness ?? 0) > 0
+                ? entity.thickness
+                : undefined,
             linked: entity !== undefined && 'ref' in entity && entity.ref !== undefined,
           }
     )

@@ -14,10 +14,9 @@ import {
   type RectEntity,
   type TextEntity,
   type DimEntity,
-  type WallEntity,
   type Entity,
 } from './document.js'
-import { dimLine, textBounds, wallBand } from './geometry.js'
+import { circleBand, dimLine, rectBand, textBounds } from './geometry.js'
 import { visibleWorldRect, worldToScreen, type Viewport, type WorldPoint, type WorldRect } from './viewport.js'
 
 /**
@@ -93,7 +92,6 @@ type CircleGeometry = Omit<CircleEntity, 'layerId'>
 type RectGeometry = Omit<RectEntity, 'layerId'>
 type TextGeometry = Omit<TextEntity, 'layerId'>
 type DimGeometry = Omit<DimEntity, 'layerId'>
-type WallGeometry = Omit<WallEntity, 'layerId'>
 
 function lineBounds(e: LineGeometry): WorldRect {
   return {
@@ -127,11 +125,6 @@ function dimBounds(e: DimGeometry): WorldRect {
   }
 }
 
-/** Walls occupy their band's outer face — bounds and culling use it. */
-function wallBounds(e: WallGeometry): WorldRect {
-  return wallBand(e).outer
-}
-
 export function entityBounds(entity: EntityDraft): WorldRect {
   switch (entity.type) {
     case 'line':
@@ -144,8 +137,6 @@ export function entityBounds(entity: EntityDraft): WorldRect {
       return textBounds(entity)
     case 'dim':
       return dimBounds(entity)
-    case 'wall':
-      return wallBounds(entity)
   }
 }
 
@@ -189,9 +180,6 @@ function drawEntity(ctx: CanvasRenderingContext2D, entity: EntityDraft, v: Viewp
     case 'dim':
       drawDim(ctx, entity, v)
       break
-    case 'wall':
-      drawWall(ctx, entity, v)
-      break
   }
 }
 
@@ -210,53 +198,88 @@ function intersects(a: WorldRect, b: WorldRect): boolean {
   return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY
 }
 
+/**
+ * A line is stroked along its path. With a thickness it becomes a ribbon
+ * centred on the path (a bare line has no inside): the world-space
+ * thickness scales to screen px, butt caps, then the previous line width
+ * is restored so the caller's hairline/selection width survives.
+ */
 export function drawLine(ctx: CanvasRenderingContext2D, e: LineGeometry, v: Viewport): void {
   const a = worldToScreen(v, e.x1, e.y1)
   const b = worldToScreen(v, e.x2, e.y2)
+  const t = Math.max(0, e.thickness ?? 0)
+  if (t > 0) {
+    ctx.save()
+    ctx.lineWidth = t * v.scale
+    ctx.beginPath()
+    ctx.moveTo(a.sx, a.sy)
+    ctx.lineTo(b.sx, b.sy)
+    ctx.stroke()
+    ctx.restore()
+    return
+  }
   ctx.beginPath()
   ctx.moveTo(a.sx, a.sy)
   ctx.lineTo(b.sx, b.sy)
   ctx.stroke()
 }
 
+/**
+ * A circle is an annulus with a thickness: the drawn radius is the outer
+ * face, the band grows inward, and both faces are stroked. Thickness 0 is
+ * the hairline arc.
+ */
 export function drawCircle(ctx: CanvasRenderingContext2D, e: CircleGeometry, v: Viewport): void {
   const c = worldToScreen(v, e.cx, e.cy)
+  const { outer, inner } = circleBand(e.r, e.thickness)
+  const ro = outer * v.scale
+  const ri = inner * v.scale
   ctx.beginPath()
-  ctx.arc(c.sx, c.sy, e.r * v.scale, 0, 2 * Math.PI)
+  ctx.arc(c.sx, c.sy, ro, 0, 2 * Math.PI)
+  if (ri > 0 && ri < ro) {
+    // A separate subpath so the second arc neither connects to nor
+    // double-strokes the first; together they fill the annulus even-odd.
+    ctx.moveTo(c.sx + ri, c.sy)
+    ctx.arc(c.sx, c.sy, ri, 0, 2 * Math.PI)
+    ctx.fill('evenodd')
+  }
   ctx.stroke()
 }
 
+/**
+ * A rect with a thickness renders as a filled band between its outer face
+ * (the drawn envelope) and its inset inner face — an even-odd path — with
+ * both faces stroked. Thickness 0 renders exactly as the hairline
+ * strokeRect; a thickness that closes the envelope leaves a 1 mm clamped
+ * void (see `rectBand`), falling back to a solid fill when that void is
+ * sub-pixel.
+ */
 export function drawRect(ctx: CanvasRenderingContext2D, e: RectGeometry, v: Viewport): void {
-  const origin = worldToScreen(v, e.x, e.y + e.h)
-  ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
+  const t = Math.max(0, e.thickness ?? 0)
+  if (t === 0) {
+    const origin = worldToScreen(v, e.x, e.y + e.h)
+    ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
+    return
+  }
+  const { outer, inner } = rectBand(e)
+  const o = rectScreen(v, outer)
+  const i = rectScreen(v, inner)
+  ctx.beginPath()
+  ctx.rect(o.x, o.y, o.w, o.h)
+  if (i.w > 0 && i.h > 0) {
+    ctx.rect(i.x, i.y, i.w, i.h)
+    ctx.fill('evenodd')
+    ctx.strokeRect(i.x, i.y, i.w, i.h)
+  } else {
+    ctx.fill()
+  }
+  ctx.strokeRect(o.x, o.y, o.w, o.h)
 }
 
 /** Screen-space top-left corner and size of a world rect (y-up world). */
 function rectScreen(v: Viewport, r: WorldRect): { x: number; y: number; w: number; h: number } {
   const origin = worldToScreen(v, r.minX, r.maxY)
   return { x: origin.sx, y: origin.sy, w: (r.maxX - r.minX) * v.scale, h: (r.maxY - r.minY) * v.scale }
-}
-
-/**
- * A wall renders as a filled band between its outer and inner faces (an
- * even-odd path), with both faces inked. When the thickness closes the
- * envelope's hole the band is simply the solid outer rect.
- */
-export function drawWall(ctx: CanvasRenderingContext2D, e: WallGeometry, v: Viewport): void {
-  const { outer, inner } = wallBand(e)
-  const o = rectScreen(v, outer)
-  const i = rectScreen(v, inner)
-  const solid = i.w <= 0 || i.h <= 0
-  ctx.beginPath()
-  ctx.rect(o.x, o.y, o.w, o.h)
-  if (solid) {
-    ctx.fill()
-  } else {
-    ctx.rect(i.x, i.y, i.w, i.h)
-    ctx.fill('evenodd')
-    ctx.strokeRect(i.x, i.y, i.w, i.h)
-  }
-  ctx.strokeRect(o.x, o.y, o.w, o.h)
 }
 
 /**
