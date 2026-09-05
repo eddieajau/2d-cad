@@ -3,7 +3,14 @@
  * @license   MIT
  */
 
-import { type AnchorCorner, type DimEntity, type Entity, type EntityDraft, type TextEntity } from './document.js'
+import {
+  type AnchorCorner,
+  type DimEntity,
+  type Entity,
+  type EntityDraft,
+  type RectEdgeOverrides,
+  type TextEntity,
+} from './document.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -70,7 +77,7 @@ export function dimOffset(first: WorldPoint, second: WorldPoint, p: WorldPoint):
 }
 
 /** Normalised world rect from an envelope drawn corner-to-corner. */
-function envelopeRect(e: { x: number; y: number; w: number; h: number }): WorldRect {
+export function rectEnvelope(e: { x: number; y: number; w: number; h: number }): WorldRect {
   return {
     minX: Math.min(e.x, e.x + e.w),
     minY: Math.min(e.y, e.y + e.h),
@@ -98,7 +105,7 @@ export function rectBand(e: { x: number; y: number; w: number; h: number; thickn
   outer: WorldRect
   inner: WorldRect
 } {
-  const outer = envelopeRect(e)
+  const outer = rectEnvelope(e)
   const t = Math.max(0, e.thickness ?? 0)
   if (t === 0) return { outer, inner: outer }
   const span = (a: number, b: number): number => Math.max(MIN_INNER_SPAN, b - a - 2 * t)
@@ -119,6 +126,103 @@ export function circleBand(r: number, thickness?: number): { outer: number; inne
   const t = Math.max(0, thickness ?? 0)
   if (t === 0) return { outer: r, inner: r }
   return { outer: r, inner: Math.max(MIN_INNER_SPAN / 2, r - t) }
+}
+
+/** The four sides of a rect, keyed as the model's `edges` overrides. */
+export type RectSide = 'n' | 'e' | 's' | 'w'
+
+/**
+ * The resolved band of one rect side: its effective thickness (the side's
+ * override, else the entity default), the corner-to-corner inner face, and
+ * the fill region between the outer face and the inner face. An open side
+ * (effective 0) carries no band or face — consumers skip it.
+ */
+export interface RectEdgeBand {
+  side: RectSide
+  effective: number
+  /** Inner face, running corner-to-corner across the full outer span. */
+  inner: { a: WorldPoint; b: WorldPoint }
+  /** The band region between the outer face and the inner face. */
+  band: WorldRect
+}
+
+/**
+ * The inner face of one side's band: the outer span inset `thickness`
+ * inward (toward the envelope centre). A thickness that would cross the
+ * envelope clamps to the opposite outer face, so the band never inverts —
+ * deterministic and documented rather than inverted geometry.
+ */
+export function rectEdgeInnerFace(
+  outer: WorldRect,
+  side: RectSide,
+  thickness: number
+): { a: WorldPoint; b: WorldPoint } {
+  switch (side) {
+    case 'n': {
+      const y = Math.max(outer.maxY - thickness, outer.minY)
+      return { a: { x: outer.minX, y }, b: { x: outer.maxX, y } }
+    }
+    case 's': {
+      const y = Math.min(outer.minY + thickness, outer.maxY)
+      return { a: { x: outer.minX, y }, b: { x: outer.maxX, y } }
+    }
+    case 'e': {
+      const x = Math.max(outer.maxX - thickness, outer.minX)
+      return { a: { x, y: outer.minY }, b: { x, y: outer.maxY } }
+    }
+    case 'w': {
+      const x = Math.min(outer.minX + thickness, outer.maxX)
+      return { a: { x, y: outer.minY }, b: { x, y: outer.maxY } }
+    }
+  }
+}
+
+/**
+ * Per-edge thickness resolution for a rect: all four sides in n/e/s/w
+ * order. An explicit edge value overrides; an omitted side inherits the
+ * entity default; an explicit `0` opens the side (no band, no face).
+ *
+ * Join strategy: every present side's band runs corner-to-corner across
+ * the full outer span, so an open side squares off cleanly and adjacent
+ * bands may overlap at closed corners — same fill, seams invisible.
+ */
+export function rectEdges(e: {
+  x: number
+  y: number
+  w: number
+  h: number
+  thickness?: number
+  edges?: RectEdgeOverrides
+}): RectEdgeBand[] {
+  const outer = rectEnvelope(e)
+  const fallback = Math.max(0, e.thickness ?? 0)
+  const sides: RectSide[] = ['n', 'e', 's', 'w']
+  return sides.map(side => {
+    const effective = Math.max(0, e.edges?.[side] ?? fallback)
+    const inner = rectEdgeInnerFace(outer, side, effective)
+    const band = edgeBandRect(outer, side, inner)
+    return { side, effective, inner, band }
+  })
+}
+
+/** The band region of one side: full outer span between face and inner face. */
+function edgeBandRect(outer: WorldRect, side: RectSide, inner: { a: WorldPoint; b: WorldPoint }): WorldRect {
+  switch (side) {
+    case 'n':
+      return { minX: outer.minX, minY: inner.a.y, maxX: outer.maxX, maxY: outer.maxY }
+    case 's':
+      return { minX: outer.minX, minY: outer.minY, maxX: outer.maxX, maxY: inner.a.y }
+    case 'e':
+      return { minX: inner.a.x, minY: outer.minY, maxX: outer.maxX, maxY: outer.maxY }
+    case 'w':
+      return { minX: outer.minX, minY: outer.minY, maxX: inner.a.x, maxY: outer.maxY }
+  }
+}
+
+/** The single common thickness when all four sides resolve equal, else null. */
+export function uniformRectThickness(edges: readonly { effective: number }[]): number | null {
+  const first = edges[0]?.effective
+  return first !== undefined && edges.every(edge => edge.effective === first) ? first : null
 }
 
 /**

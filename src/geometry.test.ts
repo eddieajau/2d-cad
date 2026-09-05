@@ -5,7 +5,17 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { anchorPoint, circleBand, dimLine, dimOffset, nearestAnchor, rectBand, textBounds } from './geometry.js'
+import {
+  anchorPoint,
+  circleBand,
+  dimLine,
+  dimOffset,
+  nearestAnchor,
+  rectBand,
+  rectEdges,
+  uniformRectThickness,
+  textBounds,
+} from './geometry.js'
 
 const p = (x: number, y: number) => ({ x, y })
 
@@ -36,6 +46,69 @@ describe('rectBand', () => {
     // Negative thickness clamps to 0 — the band collapses onto the envelope.
     const negative = rectBand({ x: 0, y: 0, w: 4, h: 4, thickness: -3 })
     expect(negative.inner).toEqual(negative.outer)
+  })
+})
+
+describe('rectEdges', () => {
+  it('resolves inherit, override, and open per side', () => {
+    const edges = rectEdges({ x: 0, y: 0, w: 10, h: 8, thickness: 270, edges: { n: 0, s: 110 } })
+    const effective = Object.fromEntries(edges.map(edge => [edge.side, edge.effective]))
+    expect(effective).toEqual({ n: 0, e: 270, s: 110, w: 270 })
+  })
+
+  it('inherits the entity default when edges is absent', () => {
+    const edges = rectEdges({ x: 0, y: 0, w: 10, h: 8, thickness: 270 })
+    expect(edges.map(edge => edge.effective)).toEqual([270, 270, 270, 270])
+  })
+
+  it('resolves uniform explicit edges like a plain thickness', () => {
+    const plain = rectEdges({ x: 0, y: 0, w: 10, h: 8, thickness: 5 })
+    const explicit = rectEdges({ x: 0, y: 0, w: 10, h: 8, thickness: 0, edges: { n: 5, e: 5, s: 5, w: 5 } })
+    expect(uniformRectThickness(explicit)).toBe(5)
+    expect(explicit.map(edge => edge.effective)).toEqual(plain.map(edge => edge.effective))
+    expect(explicit.map(edge => edge.inner)).toEqual(plain.map(edge => edge.inner))
+    expect(explicit.map(edge => edge.band)).toEqual(plain.map(edge => edge.band))
+  })
+
+  it('carries no band or face on an open side', () => {
+    const edges = rectEdges({ x: 0, y: 0, w: 10, h: 8, thickness: 2, edges: { n: 0 } })
+    const north = edges.find(edge => edge.side === 'n')!
+    expect(north.effective).toBe(0)
+    // The open side collapses to the outer face itself; render and hit
+    // testing skip it entirely.
+    expect(north.band).toEqual({ minX: 0, minY: 8, maxX: 10, maxY: 8 })
+  })
+
+  it('runs every present band corner-to-corner so open sides square off', () => {
+    // U-shape: south and west present, north and east open. The south band
+    // spans the full width even though the east side is open.
+    const edges = rectEdges({ x: 0, y: 0, w: 20, h: 10, thickness: 2, edges: { n: 0, e: 0 } })
+    const south = edges.find(edge => edge.side === 's')!
+    const west = edges.find(edge => edge.side === 'w')!
+    expect(south.band).toEqual({ minX: 0, minY: 0, maxX: 20, maxY: 2 })
+    expect(west.band).toEqual({ minX: 0, minY: 0, maxX: 2, maxY: 10 })
+  })
+
+  it('clamps an oversized edge to the opposite outer face', () => {
+    const edges = rectEdges({ x: 0, y: 0, w: 10, h: 4, thickness: 0, edges: { n: 10 } })
+    const north = edges.find(edge => edge.side === 'n')!
+    // The band swallows the whole height, clamped — never inverted.
+    expect(north.band).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 4 })
+  })
+
+  it('clamps negative edges to open', () => {
+    const edges = rectEdges({ x: 0, y: 0, w: 10, h: 8, thickness: 2, edges: { e: -5 } })
+    expect(edges.find(edge => edge.side === 'e')!.effective).toBe(0)
+  })
+})
+
+describe('uniformRectThickness', () => {
+  it('is the common value when all four sides match', () => {
+    expect(uniformRectThickness([{ effective: 3 }, { effective: 3 }, { effective: 3 }, { effective: 3 }])).toBe(3)
+  })
+
+  it('is null when any side differs, including an open side', () => {
+    expect(uniformRectThickness([{ effective: 3 }, { effective: 0 }, { effective: 3 }, { effective: 3 }])).toBeNull()
   })
 })
 

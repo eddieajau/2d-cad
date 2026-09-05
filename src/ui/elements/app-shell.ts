@@ -21,6 +21,7 @@ import {
   type Entity,
   type EntityId,
   type EntityRef,
+  type RectEdgeOverrides,
 } from '../../document.js'
 import { anchorPoint, type EntityAnchor } from '../../geometry.js'
 import { canRedo, canUndo, commit, createHistory, current, redo, undo, type History } from '../../history.js'
@@ -135,6 +136,7 @@ export class AppShell extends HTMLElement {
     this.addEventListener('app-shell:action', this.#onAction, opts)
     this.querySelector<HTMLInputElement>('.file-input')?.addEventListener('change', this.#onFileChange, opts)
     this.addEventListener('tool-palette:select', this.#onToolSelect, opts)
+    this.addEventListener('tool-palette:thickness', this.#onThicknessChange, opts)
     this.addEventListener('tool-palette:offset', this.#onOffsetCommit, opts)
     this.addEventListener('tool-palette:offset-entry', this.#onOffsetEntry, opts)
     this.addEventListener('tool-palette:escape', this.#onOffsetEscape, opts)
@@ -262,6 +264,12 @@ export class AppShell extends HTMLElement {
     const tool = (event as CustomEvent<{ tool: ToolId }>).detail.tool
     this.querySelector('cad-canvas')?.setTool(tool)
     this.querySelector('tool-palette')?.setAttribute('active', tool)
+  }
+
+  /** Rect thickness from the palette's context row, pushed into the canvas tool. */
+  #onThicknessChange = (event: Event): void => {
+    const { thickness } = (event as CustomEvent<{ thickness: number }>).detail
+    this.querySelector('cad-canvas')?.setRectThickness(thickness)
   }
 
   /** Typed dx/dy (plus Link state) from the palette, pushed into the canvas tool. */
@@ -411,14 +419,22 @@ export class AppShell extends HTMLElement {
   }
 
   /** A property patch narrowed onto the model's `updateEntity`. */
-  #applyPropertyPatch(
-    doc: DrawingDocument,
-    entity: Entity,
-    patch: Record<string, number | string | undefined>
-  ): DrawingDocument {
+  #applyPropertyPatch(doc: DrawingDocument, entity: Entity, patch: PropertiesPanelChange['patch']): DrawingDocument {
     // An explicit `ref` key is the Unlink button's removal: `{ ref: undefined }`.
     if ('ref' in patch) {
       return updateEntity(doc, entity.id, { ref: patch.ref as EntityRef | undefined })
+    }
+    // A one-side `edges` patch merges over the existing overrides; sides
+    // dropped back to `undefined` inherit again, and an all-clear result
+    // removes the member entirely (uniform rects serialize as 025 left them).
+    if ('edges' in patch && entity.type === 'rect') {
+      const overrides = patch.edges as RectEdgeOverrides | undefined
+      const merged = { ...entity.edges, ...overrides } as RectEdgeOverrides
+      const sparse = Object.fromEntries(
+        Object.entries(merged).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+      )
+      const edges = Object.keys(sparse).length > 0 ? sparse : undefined
+      return updateEntity(doc, entity.id, { edges })
     }
     const ref = 'ref' in entity ? entity.ref : undefined
     if (ref !== undefined && ('dx' in patch || 'dy' in patch)) {

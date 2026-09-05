@@ -12,6 +12,7 @@ import type { ToolContext } from './types.js'
 
 const ctx: ToolContext = {
   doc: createDocument(),
+  rectThickness: 0,
   viewport: { offsetX: 0, offsetY: 0, scale: 1 } satisfies Viewport,
 }
 

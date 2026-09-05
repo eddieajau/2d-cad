@@ -13,6 +13,7 @@ import type { ToolContext } from './types.js'
 function makeCtx(doc: DrawingDocument): ToolContext {
   return {
     doc,
+    rectThickness: 0,
     viewport: { offsetX: 0, offsetY: 0, scale: 1 } satisfies Viewport,
   }
 }

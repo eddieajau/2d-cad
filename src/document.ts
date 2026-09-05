@@ -76,10 +76,26 @@ export interface RectEntity {
    * (a 1000-wide rect with 100-thick edges has an 800 inner width).
    */
   thickness?: number
+  /**
+   * Per-side thickness overrides (mm). An omitted side inherits
+   * `thickness`; an explicit `0` opens that side (no band); negative or
+   * non-finite values are rejected at parse. Omitted entirely when there
+   * are no overrides — uniform rects serialize exactly as ticket 025 left
+   * them.
+   */
+  edges?: RectEdgeOverrides
   /** Optional per-entity colour override; absent means "use the layer's". */
   colour?: string
   /** Optional positional reference; the ref's parent anchor wins on resolve. */
   ref?: EntityRef
+}
+
+/** Sparse per-side thickness overrides for a rect; absent side inherits. */
+export interface RectEdgeOverrides {
+  n?: number
+  e?: number
+  s?: number
+  w?: number
 }
 
 export interface TextEntity {
@@ -368,6 +384,29 @@ function parseThickness(record: Record<string, unknown>): number | undefined {
   return record.thickness
 }
 
+/** The rect sides that may carry a per-edge thickness override. */
+const RECT_SIDES = ['n', 'e', 's', 'w'] as const
+
+/**
+ * Sparse per-side rect overrides: an omitted side inherits `thickness`,
+ * an explicit `0` opens the side; every present value must be finite and
+ * non-negative.
+ */
+function parseRectEdges(record: Record<string, unknown>): void {
+  if (record.edges === undefined) return
+  if (typeof record.edges !== 'object' || record.edges === null) {
+    throw new DocumentParseError('Rect "edges" must be an object')
+  }
+  const edges = record.edges as Record<string, unknown>
+  for (const side of RECT_SIDES) {
+    const value = edges[side]
+    if (value === undefined) continue
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new DocumentParseError(`Rect "edges.${side}" must be a non-negative finite number`)
+    }
+  }
+}
+
 function parseEntity(value: unknown): EntityDraft {
   if (typeof value !== 'object' || value === null) {
     throw new DocumentParseError('Entity must be an object')
@@ -401,6 +440,7 @@ function parseEntity(value: unknown): EntityDraft {
         throw new DocumentParseError('Rect entity has missing or non-finite values')
       }
       parseThickness(record)
+      parseRectEdges(record)
       return value as RectEntity
     case 'text':
       if (!isFiniteRecord(record, ['x', 'y', 'size'])) {

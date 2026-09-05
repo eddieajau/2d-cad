@@ -402,6 +402,44 @@ describe('thickness rendering', () => {
     const thick = { id: 'e9', type: 'rect', layerId: 'layer-0', x: 0, y: 0, w: 100, h: 100, thickness: 270 } as const
     expect(documentBounds(docWith(thick))).toEqual({ minX: 0, minY: 0, maxX: 100, maxY: 100 })
   })
+
+  it('renders uniform explicit edges exactly like a plain thickness', () => {
+    const { ctx, calls } = createCtxStub()
+    drawRect(
+      ctx,
+      { id: 'r1', type: 'rect', x: 0, y: 0, w: 30, h: 10, thickness: 3, edges: { n: 3, e: 3, s: 3, w: 3 } },
+      viewport
+    )
+    // The fast path: even-odd band, outer + inner faces — no per-side quads.
+    expect(calls).toContainEqual({ method: 'rect', args: [0, 290, 30, 10] })
+    expect(calls).toContainEqual({ method: 'rect', args: [3, 293, 24, 4] })
+    expect(calls).toContainEqual({ method: 'fill', args: ['evenodd'] })
+    expect(calls.filter(c => c.method === 'fill')).toHaveLength(1)
+  })
+
+  it('renders mixed edges as per-side bands, open sides drawing nothing', () => {
+    const { ctx, calls } = createCtxStub()
+    // U-shape: default 5 on south/west, east 2, north open.
+    drawRect(ctx, { id: 'r1', type: 'rect', x: 0, y: 0, w: 30, h: 10, thickness: 5, edges: { n: 0, e: 2 } }, viewport)
+    // The outer face still runs corner-to-corner.
+    expect(calls).toContainEqual({ method: 'strokeRect', args: [0, 290, 30, 10] })
+    // Present sides: south (y ≤ 5), west (x ≤ 5), east (x ≥ 28).
+    expect(calls).toContainEqual({ method: 'rect', args: [0, 295, 30, 5] })
+    expect(calls).toContainEqual({ method: 'rect', args: [0, 290, 5, 10] })
+    expect(calls).toContainEqual({ method: 'rect', args: [28, 290, 2, 10] })
+    // The open north side contributes no band quad.
+    expect(calls).not.toContainEqual({ method: 'rect', args: [0, 290, 30, 5] })
+    // Each band fills separately (they overlap at corners).
+    expect(calls.filter(c => c.method === 'fill')).toHaveLength(3)
+    expect(calls.some(c => c.method === 'fill' && c.args[0] === 'evenodd')).toBe(false)
+    // Inner faces stroke corner-to-corner per side.
+    expect(calls).toContainEqual({ method: 'moveTo', args: [0, 295] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [30, 295] })
+    expect(calls).toContainEqual({ method: 'moveTo', args: [5, 300] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [5, 290] })
+    expect(calls).toContainEqual({ method: 'moveTo', args: [28, 300] })
+    expect(calls).toContainEqual({ method: 'lineTo', args: [28, 290] })
+  })
 })
 
 describe('drawText', () => {

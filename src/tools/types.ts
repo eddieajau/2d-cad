@@ -12,6 +12,11 @@ export type ToolId = 'select' | 'line' | 'rect' | 'circle' | 'text' | 'dim' | 'o
 export interface ToolContext {
   readonly doc: DrawingDocument
   readonly viewport: Viewport
+  /**
+   * Rect tool page state: the thickness (mm) the palette's context row
+   * holds. Every tool sees it; only the rect tool consumes it.
+   */
+  readonly rectThickness: number
 }
 
 export interface ToolState {

@@ -12,8 +12,11 @@ import type { ToolContext } from './types.js'
 
 const ctx: ToolContext = {
   doc: createDocument(),
+  rectThickness: 0,
   viewport: { offsetX: 0, offsetY: 0, scale: 1 } satisfies Viewport,
 }
+
+const thickCtx: ToolContext = { ...ctx, rectThickness: 270 }
 
 const down = new PointerEvent('pointerdown')
 const move = new PointerEvent('pointermove')
@@ -90,5 +93,31 @@ describe('RectTool', () => {
 
     const after = tool.onKey(state, new KeyboardEvent('keydown', { key: 'Enter' }))
     expect(after).toEqual(state)
+  })
+
+  it('previews and commits with the context thickness', () => {
+    const tool = new RectTool()
+    let state = tool.init()
+
+    state = tool.onPointerDown(thickCtx, state, { x: 0, y: 0 }, down)
+    state = tool.onPointerMove(thickCtx, state, { x: 10, y: 6 }, move)
+    expect(state.preview).toMatchObject({ type: 'rect', x: 0, y: 0, w: 10, h: 6, thickness: 270 })
+
+    const result = tool.onPointerUp(thickCtx, state, { x: 10, y: 6 }, up)
+    expect(result.commit).toEqual({
+      kind: 'add',
+      entity: { id: expect.any(String), type: 'rect', x: 0, y: 0, w: 10, h: 6, thickness: 270 },
+    })
+  })
+
+  it('omits the thickness key when the context thickness is 0', () => {
+    const tool = new RectTool()
+    let state = tool.init()
+    state = tool.onPointerDown(ctx, state, { x: 0, y: 0 }, down)
+    const result = tool.onPointerUp(ctx, state, { x: 4, y: 3 }, up)
+    expect(result.commit).toEqual({
+      kind: 'add',
+      entity: { id: expect.any(String), type: 'rect', x: 0, y: 0, w: 4, h: 3 },
+    })
   })
 })

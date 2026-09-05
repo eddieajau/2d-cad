@@ -108,6 +108,24 @@ describe('app-shell', () => {
     el.remove()
   })
 
+  it('routes palette thickness into the rect tool, and committed rects carry it', () => {
+    const { shell, canvas } = makeDrawableShell()
+
+    canvas.setTool('rect')
+    const palette = shell.querySelector('tool-palette')!
+    palette.dispatchEvent(
+      new CustomEvent('tool-palette:thickness', { detail: { thickness: 270 }, bubbles: true, composed: true })
+    )
+    expect(canvas.getRectThickness()).toBe(270)
+
+    pointer(canvas, 'pointerdown', 0, 0)
+    pointer(canvas, 'pointerup', 4000, 3000)
+    const rect = canvas.getDocument().entities[0]
+    expect(rect?.type === 'rect' && rect.thickness).toBe(270)
+
+    shell.remove()
+  })
+
   describe('status bar', () => {
     it('pushes pointer, snap, and selection readouts into the status bar', () => {
       const shell = document.createElement('app-shell')
@@ -231,6 +249,46 @@ describe('app-shell', () => {
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
       const restored = canvas.getDocument().entities[0]
       expect(restored?.type === 'rect' && restored.thickness).toBeUndefined()
+
+      shell.remove()
+    })
+
+    it('maps sparse edges patches onto the rect, dropping cleared sides', () => {
+      const { shell, canvas } = makeDrawableShell()
+
+      canvas.setTool('rect')
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 4000, 3000)
+      const rect = canvas.getDocument().entities[0]
+      expect(rect?.type).toBe('rect')
+
+      const emit = (patch: Record<string, unknown>): void => {
+        shell.querySelector('properties-panel')!.dispatchEvent(
+          new CustomEvent('properties-panel:change', {
+            detail: { id: rect!.id, patch },
+            bubbles: true,
+            composed: true,
+          })
+        )
+      }
+
+      emit({ edges: { s: 110 } })
+      let edited = canvas.getDocument().entities[0]
+      expect(edited?.type === 'rect' && edited.edges).toEqual({ s: 110 })
+
+      // A second side merges over the first; an explicit 0 stays (open).
+      emit({ edges: { w: 0 } })
+      edited = canvas.getDocument().entities[0]
+      expect(edited?.type === 'rect' && edited.edges).toEqual({ s: 110, w: 0 })
+
+      // Clearing a side drops it back to inherit; clearing the last side
+      // removes the member entirely.
+      emit({ edges: { s: undefined } })
+      edited = canvas.getDocument().entities[0]
+      expect(edited?.type === 'rect' && edited.edges).toEqual({ w: 0 })
+      emit({ edges: { w: undefined } })
+      edited = canvas.getDocument().entities[0]
+      expect(edited?.type === 'rect' && edited.edges).toBeUndefined()
 
       shell.remove()
     })

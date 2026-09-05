@@ -190,6 +190,28 @@ describe('serialize/deserialize round-trip', () => {
     expect(restored).toEqual(doc)
   })
 
+  it('round-trips sparse rect edges', () => {
+    const kitchen: RectEntity = {
+      id: 'e7',
+      type: 'rect',
+      layerId: 'layer-0',
+      x: 0,
+      y: 0,
+      w: 4000,
+      h: 3000,
+      thickness: 110,
+      edges: { n: 0, e: 0, s: 110, w: 110 },
+    }
+    const doc = addEntity(createDocument(), kitchen)
+    expect(deserializeDocument(serializeDocument(doc))).toEqual(doc)
+  })
+
+  it('omits the edges key for rects without overrides', () => {
+    const doc = addEntity(createDocument(), { id: 'e3', type: 'rect', layerId: 'layer-0', x: 1, y: 2, w: 3, h: 4 })
+    const parsed = JSON.parse(serializeDocument(doc)) as { entities: Array<Record<string, unknown>> }
+    expect(Object.hasOwn(parsed.entities[0]!, 'edges')).toBe(false)
+  })
+
   it('round-trips thickness on line, circle, and rect entities', () => {
     const thickLine: LineEntity = { ...line, thickness: 100 }
     const thickCircle: CircleEntity = { ...circle, thickness: 50 }
@@ -287,6 +309,15 @@ describe('deserializeDocument', () => {
     for (const thickness of [-1, Infinity, NaN]) {
       const json = JSON.stringify({
         entities: [{ id: 'e1', type: 'rect', x: 0, y: 0, w: 10, h: 4, thickness }],
+      })
+      expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
+    }
+  })
+
+  it('throws DocumentParseError on negative, non-finite, or malformed rect edges', () => {
+    for (const edges of [{ n: -1 }, { w: Infinity }, { s: NaN }, 'wide', null]) {
+      const json = JSON.stringify({
+        entities: [{ id: 'e1', type: 'rect', x: 0, y: 0, w: 10, h: 4, thickness: 2, edges }],
       })
       expect(() => deserializeDocument(json)).toThrow(DocumentParseError)
     }

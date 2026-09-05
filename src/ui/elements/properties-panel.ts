@@ -3,7 +3,7 @@
  * @license   MIT
  */
 
-import type { AnchorCorner, Entity, EntityId } from '../../document.js'
+import type { AnchorCorner, Entity, EntityId, RectEdgeOverrides } from '../../document.js'
 import { escapeHtml } from '../lib/escape.js'
 import './entity-colour.js'
 
@@ -11,9 +11,11 @@ export interface PropertiesPanelChange {
   id: EntityId
   /**
    * Field keys validated against the panel's per-type spec, values typed.
-   * An `undefined` value (currently only `ref`) removes the member.
+   * An `undefined` value (currently only `ref`) removes the member. A rect
+   * edge edit arrives as a one-side `edges` override (`undefined` drops
+   * that side back to the inherited `thickness`).
    */
-  patch: Record<string, number | string | undefined>
+  patch: Record<string, number | string | undefined | RectEdgeOverrides>
 }
 
 export interface PropertiesPanelEventMap {
@@ -22,7 +24,7 @@ export interface PropertiesPanelEventMap {
   'properties-panel:pick-parent': CustomEvent<null>
 }
 
-type FieldKind = 'number' | 'text' | 'select'
+type FieldKind = 'number' | 'text' | 'select' | 'edge'
 
 interface FieldSpec {
   readonly key: string
@@ -41,10 +43,29 @@ const numField = (key: string, step = 1, min?: number): FieldSpec => ({
   ...(min !== undefined ? { min } : {}),
 })
 
+/** One rect side's edge-thickness row: empty inherits, 0 opens, N overrides. */
+const edgeField = (side: 'n' | 'e' | 's' | 'w'): FieldSpec => ({
+  key: `edges.${side}`,
+  label: `${side.toUpperCase()} edge mm`,
+  kind: 'edge',
+  step: 10,
+  min: 0,
+})
+
 /** The editable fields of each entity type; world units are millimetres. */
 const FIELDS: Record<Entity['type'], readonly FieldSpec[]> = {
   line: [numField('x1'), numField('y1'), numField('x2'), numField('y2'), numField('thickness', 10, 0)],
-  rect: [numField('x'), numField('y'), numField('w'), numField('h'), numField('thickness', 10, 0)],
+  rect: [
+    numField('x'),
+    numField('y'),
+    numField('w'),
+    numField('h'),
+    numField('thickness', 10, 0),
+    edgeField('n'),
+    edgeField('e'),
+    edgeField('s'),
+    edgeField('w'),
+  ],
   circle: [numField('cx'), numField('cy'), numField('r', 1, 0), numField('thickness', 10, 0)],
   text: [{ key: 'text', label: 'content', kind: 'text' }, numField('x'), numField('y'), numField('size')],
   dim: [numField('x1'), numField('y1'), numField('x2'), numField('y2'), numField('offset')],
@@ -96,9 +117,33 @@ function fieldValue(entity: Entity, spec: FieldSpec): string {
     const ref = 'ref' in entity ? entity.ref : undefined
     return ref === undefined ? '' : String(ref[spec.key])
   }
+  // Edge rows show only the explicit override: empty means "inherit".
+  if (spec.kind === 'edge') {
+    const override = edgeOverride(entity, edgeSide(spec.key))
+    return override === undefined ? '' : String(override)
+  }
   // Spec keys come from the per-type table above, so the read is safe.
   const value = (entity as unknown as Record<string, unknown>)[spec.key]
   return typeof value === 'number' ? String(value) : typeof value === 'string' ? value : ''
+}
+
+/** The `edges` side a field key addresses, e.g. `edges.n` → `'n'`. */
+function edgeSide(key: string): keyof RectEdgeOverrides {
+  return key.slice('edges.'.length) as keyof RectEdgeOverrides
+}
+
+/** The selected entity's explicit override for one side, if any. */
+function edgeOverride(entity: Entity, side: keyof RectEdgeOverrides): number | undefined {
+  return 'edges' in entity ? entity.edges?.[side] : undefined
+}
+
+/**
+ * The inherited (non-override) value every edge row resolves to: the
+ * entity's default `thickness`. Shown as the input's placeholder — visible
+ * only while the field is empty.
+ */
+function edgeInherited(entity: Entity): number {
+  return 'thickness' in entity ? (entity.thickness ?? 0) : 0
 }
 
 /** A field-level rejection message, or null when the value is acceptable. */
@@ -195,10 +240,14 @@ export class PropertiesPanel extends HTMLElement {
     }
     const step = spec.step !== undefined ? ` step="${spec.step}"` : ''
     const min = spec.min !== undefined ? ` min="${spec.min}"` : ''
+    const type = spec.kind === 'text' ? 'text' : 'number'
+    // Edge rows have no value when the side inherits — the placeholder
+    // announces the inherited thickness they resolve to.
+    const placeholder = spec.kind === 'edge' ? ` placeholder="${escapeHtml(String(edgeInherited(entity)))}"` : ''
     return `
       <label class="prop-field">
         <span class="prop-label">${spec.label}</span>
-        <input class="prop-input" data-key="${spec.key}" type="${spec.kind}"${step}${min} value="${value}"
+        <input class="prop-input" data-key="${spec.key}" type="${type}"${step}${min}${placeholder} value="${value}"
           data-value="${value}" />
         <span class="prop-error" role="alert" hidden></span>
       </label>
@@ -285,6 +334,13 @@ export class PropertiesPanel extends HTMLElement {
       return
     }
 
+    // Rect edge rows: empty drops the side back to the inherited
+    // `thickness`, `0` opens it, a number overrides it.
+    if (key.startsWith('edges.')) {
+      this.#commitEdge(input, key, baseline)
+      return
+    }
+
     const raw = input.value.trim()
     // An emptied field means "no entry", not a value: restore the current one.
     if (raw === '') {
@@ -315,6 +371,55 @@ export class PropertiesPanel extends HTMLElement {
     this.#emit({ [key]: parsed })
   }
 
+  /**
+   * An edge row's commit: an emptied field removes the override (the side
+   * inherits again — only when an override existed), a typed value equal
+   * to the inherited thickness changes nothing, and everything else lands
+   * as a one-side sparse `edges` patch.
+   */
+  #commitEdge(input: HTMLInputElement, key: string, baseline: string): void {
+    const entity = this.#entity
+    if (entity === null) return
+    const side = edgeSide(key)
+    const canonical = (value: string): void => {
+      input.value = value
+      input.dataset.value = value
+      this.#clearError(input)
+    }
+    const raw = input.value.trim()
+    if (raw === '') {
+      // An empty field on an already-inheriting side is an untouched blur.
+      if (baseline === '') {
+        this.#clearError(input)
+        return
+      }
+      canonical('')
+      this.#emit({ edges: { [side]: undefined } })
+      return
+    }
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed)) {
+      this.#fail(input, 'Enter a number')
+      return
+    }
+    if (parsed < 0) {
+      this.#fail(input, 'Edge thickness cannot be negative')
+      return
+    }
+    // An unchanged value commits nothing — blur after Enter is not an edit.
+    if (String(parsed) === baseline) {
+      canonical(String(parsed))
+      return
+    }
+    // Typing the inherited value onto an inheriting side changes nothing.
+    if (baseline === '' && parsed === edgeInherited(entity)) {
+      canonical(String(parsed))
+      return
+    }
+    canonical(String(parsed))
+    this.#emit({ edges: { [side]: parsed } })
+  }
+
   #fail(input: HTMLInputElement, message: string): void {
     const error = input.closest('label.prop-field')?.querySelector<HTMLElement>('.prop-error')
     if (error === null || error === undefined) return
@@ -327,7 +432,7 @@ export class PropertiesPanel extends HTMLElement {
     if (error !== null && error !== undefined) error.hidden = true
   }
 
-  #emit(patch: Record<string, number | string | undefined>): void {
+  #emit(patch: PropertiesPanelChange['patch']): void {
     const entity = this.#entity
     if (entity === null) return
     this.dispatchEvent(

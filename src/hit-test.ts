@@ -4,7 +4,17 @@
  */
 
 import type { CircleEntity, DrawingDocument, LineEntity, Entity, RectEntity } from './document.js'
-import { circleBand, rectBand, dimLine, textBounds, type DimGeometry, type TextGeometry } from './geometry.js'
+import {
+  circleBand,
+  rectBand,
+  rectEdges,
+  rectEnvelope,
+  uniformRectThickness,
+  dimLine,
+  textBounds,
+  type DimGeometry,
+  type TextGeometry,
+} from './geometry.js'
 import type { WorldPoint, WorldRect } from './viewport.js'
 
 /**
@@ -62,16 +72,58 @@ export function distanceToWorldRect(p: WorldPoint, r: WorldRect): number {
  * closes the envelope leaves only the clamped 1 mm core measuring
  * positive. Thickness 0 keeps the hairline's edge-or-interior semantics:
  * the band is the envelope, so every interior point hits at 0.
+ *
+ * Per-edge overrides split the band: a uniform resolution keeps the band
+ * logic above; mixed edges measure per side — a point within a present
+ * side's band hits at 0, a point in the void measures to the nearest
+ * present side's inner face, and an open (0) side contributes nothing, so
+ * a click there passes through to whatever is behind.
  */
 export function distanceToRect(p: WorldPoint, e: Omit<RectEntity, 'layerId'>): number {
-  const { outer, inner } = rectBand(e)
+  const outer = rectEnvelope(e)
   if (!withinRect(p, outer)) return distanceToWorldRect(p, outer)
-  // No void when the band collapsed onto the envelope (thickness 0) —
-  // every interior point hits at 0, the hairline's edge-or-interior rule.
-  const hasVoid =
-    inner.minX > outer.minX || inner.minY > outer.minY || inner.maxX < outer.maxX || inner.maxY < outer.maxY
-  if (!hasVoid || !withinRect(p, inner)) return 0
-  return Math.min(p.x - inner.minX, inner.maxX - p.x, p.y - inner.minY, inner.maxY - p.y)
+  const edges = rectEdges(e)
+  const uniform = uniformRectThickness(edges)
+  if (uniform !== null) {
+    const { inner } = rectBand({ ...e, thickness: uniform })
+    // No void when the band collapsed onto the envelope (thickness 0) —
+    // every interior point hits at 0, the hairline's edge-or-interior rule.
+    const hasVoid =
+      inner.minX > outer.minX || inner.minY > outer.minY || inner.maxX < outer.maxX || inner.maxY < outer.maxY
+    if (!hasVoid || !withinRect(p, inner)) return 0
+    return Math.min(p.x - inner.minX, inner.maxX - p.x, p.y - inner.minY, inner.maxY - p.y)
+  }
+  // Mixed edges: the inner faces run corner-to-corner, so from any point
+  // inside the envelope the perpendicular distance to a face is the whole
+  // measure (the foot of the perpendicular always lands on the segment).
+  let nearest = Infinity
+  for (const { side, effective, inner } of edges) {
+    if (effective <= 0) continue
+    const distance = distanceToEdgeFace(p, side, inner)
+    if (distance === 0) return 0
+    nearest = Math.min(nearest, distance)
+  }
+  // Mixed resolution guarantees at least one present side; stay defensive
+  // so a caller hand-building `edges` never measures Infinity.
+  return Number.isFinite(nearest) ? nearest : 0
+}
+
+/** Perpendicular distance from `p` to a side's corner-to-corner inner face. */
+function distanceToEdgeFace(
+  p: WorldPoint,
+  side: 'n' | 'e' | 's' | 'w',
+  face: { a: WorldPoint; b: WorldPoint }
+): number {
+  switch (side) {
+    case 'n':
+      return p.y >= face.a.y ? 0 : face.a.y - p.y
+    case 's':
+      return p.y <= face.a.y ? 0 : p.y - face.a.y
+    case 'e':
+      return p.x >= face.a.x ? 0 : face.a.x - p.x
+    case 'w':
+      return p.x <= face.a.x ? 0 : p.x - face.a.x
+  }
 }
 
 /** Distance from `p` to a text entity's bounding box (interior hits at 0). */

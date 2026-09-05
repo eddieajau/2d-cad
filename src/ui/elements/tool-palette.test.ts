@@ -257,4 +257,52 @@ describe('tool-palette', () => {
     expect(dy.value).toBe('')
     el.remove()
   })
+
+  it('shows the thickness input only while the rect tool is active', () => {
+    const el = makePalette('line,rect,offset', 'line')
+    const row = el.querySelector<HTMLElement>('.rect-thickness')!
+    expect(row.hidden).toBe(true)
+
+    el.setAttribute('active', 'rect')
+    expect(row.hidden).toBe(false)
+    const input = el.querySelector<HTMLInputElement>('.rect-thickness input')!
+    expect(input.type).toBe('number')
+    expect(input.step).toBe('10')
+    expect(input.value).toBe('0')
+    // The wrapped label names the input for keyboard/AT users.
+    expect(row.textContent).toContain('thickness mm')
+    el.remove()
+  })
+
+  it('input in the thickness field emits tool-palette:thickness', () => {
+    const el = makePalette('rect', 'rect')
+    const committed: { thickness: number }[] = []
+    el.addEventListener('tool-palette:thickness', event =>
+      committed.push((event as CustomEvent<{ thickness: number }>).detail)
+    )
+
+    const input = el.querySelector<HTMLInputElement>('.rect-thickness input')!
+    input.value = '270'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.value = '0'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+
+    expect(committed).toEqual([{ thickness: 270 }, { thickness: 0 }])
+    el.remove()
+  })
+
+  it('ignores negative or invalid thickness entries', () => {
+    const el = makePalette('rect', 'rect')
+    const committed: unknown[] = []
+    el.addEventListener('tool-palette:thickness', event => committed.push((event as CustomEvent).detail))
+
+    const input = el.querySelector<HTMLInputElement>('.rect-thickness input')!
+    for (const value of ['-5', 'abc', '']) {
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    expect(committed).toEqual([])
+    el.remove()
+  })
 })

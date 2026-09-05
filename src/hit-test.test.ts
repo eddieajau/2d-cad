@@ -134,6 +134,69 @@ describe('distanceToRect with thickness', () => {
   })
 })
 
+describe('distanceToRect with per-edge thickness', () => {
+  // U-shape against a neighbour: envelope (0,0)–(20,10), default thickness
+  // 2 on the closed sides, north and east open (0).
+  const u = { id: 'r1', type: 'rect', x: 0, y: 0, w: 20, h: 10, thickness: 2, edges: { n: 0, e: 0 } } as const
+
+  it('hits a present side at zero', () => {
+    // South band (y ≤ 2) and west band (x ≤ 2).
+    expect(distanceToRect(p(10, 1), u)).toBe(0)
+    expect(distanceToRect(p(1, 9), u)).toBe(0)
+    // The corner where two present sides meet.
+    expect(distanceToRect(p(1, 1), u)).toBe(0)
+  })
+
+  it('misses through an open side — the click passes behind', () => {
+    // Top edge centre: north is open, the void reaches 7 mm deep from there.
+    expect(distanceToRect(p(10, 9), u)).toBe(7)
+    // Top-right corner: both open sides meet, nothing carries the click.
+    expect(distanceToRect(p(19, 9), u)).toBe(7)
+  })
+
+  it('measures to the nearest present inner face from the void', () => {
+    expect(distanceToRect(p(5, 5), u)).toBe(3)
+  })
+
+  it('keeps an open side open even against a large default', () => {
+    const thickOpen = { id: 'r3', type: 'rect', x: 0, y: 0, w: 20, h: 10, thickness: 6, edges: { n: 0 } } as const
+    // North band absent; the south band's inner face still measures.
+    expect(distanceToRect(p(10, 9), thickOpen)).toBe(3)
+    expect(distanceToRect(p(10, 3), thickOpen)).toBe(0)
+  })
+
+  it('treats an all-open rect as the hairline envelope', () => {
+    const open = {
+      id: 'r4',
+      type: 'rect',
+      x: 0,
+      y: 0,
+      w: 20,
+      h: 10,
+      thickness: 5,
+      edges: { n: 0, e: 0, s: 0, w: 0 },
+    } as const
+    expect(distanceToRect(p(10, 5), open)).toBe(0)
+  })
+
+  it('resolves uniform explicit edges exactly like a plain thickness', () => {
+    const plain = { id: 'r5', type: 'rect', x: 0, y: 0, w: 20, h: 10, thickness: 2 } as const
+    const uniform = {
+      id: 'r5',
+      type: 'rect',
+      x: 0,
+      y: 0,
+      w: 20,
+      h: 10,
+      thickness: 0,
+      edges: { n: 2, e: 2, s: 2, w: 2 },
+    } as const
+    for (const point of [p(1, 5), p(10, 5), p(10, 12), p(30, 5)]) {
+      expect(distanceToRect(point, uniform)).toBe(distanceToRect(point, plain))
+    }
+  })
+})
+
 describe('distanceToCircle with thickness', () => {
   const annulus = { id: 'c1', type: 'circle', cx: 0, cy: 0, r: 5, thickness: 2 } as const
 

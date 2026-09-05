@@ -103,6 +103,8 @@ export class CadCanvas extends HTMLElement {
   #panLast: { x: number; y: number } | null = null
   /** Non-null while the transient anchor-pick mode is armed. */
   #anchorPick: { previousTool: Tool } | null = null
+  /** Rect tool page state: the palette context row's thickness (mm). */
+  #rectThickness = 0
 
   constructor() {
     super()
@@ -208,6 +210,17 @@ export class CadCanvas extends HTMLElement {
 
   getTool(): ToolId {
     return this.#tool.id
+  }
+
+  /** Rect band thickness (mm) from the palette's context row; page state. */
+  setRectThickness(thickness: number): void {
+    if (!Number.isFinite(thickness) || thickness < 0 || thickness === this.#rectThickness) return
+    this.#rectThickness = thickness
+    this.invalidate()
+  }
+
+  getRectThickness(): number {
+    return this.#rectThickness
   }
 
   /**
@@ -431,7 +444,7 @@ export class CadCanvas extends HTMLElement {
 
     // Route the gesture through the active tool first; the pointer event
     // still bubbles outward as `cad-canvas:pointer` for the mediator.
-    const ctx: ToolContext = { doc: resolved, viewport: this.#viewport }
+    const ctx: ToolContext = { doc: resolved, viewport: this.#viewport, rectThickness: this.#rectThickness }
     if (event.type === 'pointerdown') {
       this.#toolState = this.#tool.onPointerDown(ctx, this.#toolState, world, event)
     } else if (event.type === 'pointermove') {

@@ -7,6 +7,8 @@ import type { ToolId } from '../../tools/types.js'
 
 export interface ToolPaletteEventMap {
   'tool-palette:select': CustomEvent<{ tool: ToolId }>
+  /** Rect tool thickness (mm) from the context row; live on input. */
+  'tool-palette:thickness': CustomEvent<{ thickness: number }>
   /** Typed dx/dy (mm) committed on Enter from the offset tool's entry row. */
   'tool-palette:offset': CustomEvent<{ dx: number; dy: number; link: boolean }>
   /** Live dx/dy from the offset inputs; null when a field is empty or invalid. */
@@ -120,7 +122,13 @@ export class ToolPalette extends HTMLElement {
           <label>dx mm <input class="offset-dx" type="number" step="1" /></label>
           <label>dy mm <input class="offset-dy" type="number" step="1" /></label>
           <label class="offset-link"><input type="checkbox" /> Link</label>
-        </span>`
+        </span>` +
+      // The rect tool's band thickness. Hidden unless the rect tool is
+      // active (syncDisplay); every valid value emits live so the canvas
+      // tool previews and commits with it. Default 0 — the hairline.
+      `<label class="rect-thickness" hidden>thickness mm
+          <input type="number" min="0" step="10" value="0" />
+        </label>`
   }
 
   setupEventListeners(): void {
@@ -132,6 +140,7 @@ export class ToolPalette extends HTMLElement {
     this.addEventListener('keydown', this.#onButtonKey, opts)
     this.addEventListener('keydown', this.#onOffsetKey, opts)
     this.addEventListener('input', this.#onOffsetInput, opts)
+    this.addEventListener('input', this.#onThicknessInput, opts)
     // Shortcuts live here so palette buttons and keys emit the same event.
     document.addEventListener('keydown', this.#onShortcut, opts)
   }
@@ -148,6 +157,8 @@ export class ToolPalette extends HTMLElement {
     }
     const offsetRow = this.querySelector('.offset-entry')
     if (offsetRow instanceof HTMLElement) offsetRow.hidden = this.#active !== 'offset'
+    const thicknessRow = this.querySelector('.rect-thickness')
+    if (thicknessRow instanceof HTMLElement) thicknessRow.hidden = this.#active !== 'rect'
   }
 
   #onClick = (event: MouseEvent): void => {
@@ -214,6 +225,24 @@ export class ToolPalette extends HTMLElement {
     const input = event.target
     if (!(input instanceof HTMLInputElement) || !input.matches('.offset-dx, .offset-dy')) return
     this.#emitOffsetEntry()
+  }
+
+  // The rect thickness row: valid values (non-negative, finite) emit live;
+  // garbage, negatives, and an emptied field are ignored until they parse.
+  #onThicknessInput = (event: Event): void => {
+    const input = event.target
+    if (!(input instanceof HTMLInputElement) || !input.closest('.rect-thickness')) return
+    const raw = input.value.trim()
+    if (raw === '') return
+    const thickness = Number(raw)
+    if (!Number.isFinite(thickness) || thickness < 0) return
+    this.dispatchEvent(
+      new CustomEvent('tool-palette:thickness', {
+        bubbles: true,
+        composed: true,
+        detail: { thickness },
+      })
+    )
   }
 
   #emitOffsetEntry(): void {

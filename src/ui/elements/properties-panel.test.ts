@@ -11,6 +11,7 @@ import type { PropertiesPanel, PropertiesPanelChange } from './properties-panel.
 
 const LINE: Entity = { id: 'e1', type: 'line', layerId: 'layer-0', x1: 0, y1: 0, x2: 40, y2: 20 }
 const RECT: Entity = { id: 'e2', type: 'rect', layerId: 'layer-0', x: 10, y: 20, w: 100, h: 50, thickness: 270 }
+const EDGE_RECT: Entity = { ...RECT, id: 'e8', edges: { n: 0, s: 110 } }
 const CIRCLE: Entity = { id: 'e3', type: 'circle', layerId: 'layer-0', cx: 5, cy: 6, r: 12 }
 const TEXT: Entity = { id: 'e5', type: 'text', layerId: 'layer-0', x: 1, y: 2, text: 'Driveway', size: 200 }
 const DIM: Entity = { id: 'e6', type: 'dim', layerId: 'layer-0', x1: 0, y1: 0, x2: 100, y2: 0, offset: 15 }
@@ -80,7 +81,7 @@ describe('properties-panel', () => {
     expect(field(el, 'x2').value).toBe('40')
 
     el.setEntity(RECT)
-    expect(keys(el)).toEqual(['x', 'y', 'w', 'h', 'thickness'])
+    expect(keys(el)).toEqual(['x', 'y', 'w', 'h', 'thickness', 'edges.n', 'edges.e', 'edges.s', 'edges.w'])
     expect(field(el, 'h').value).toBe('50')
     expect(field(el, 'thickness').value).toBe('270')
 
@@ -106,6 +107,86 @@ describe('properties-panel', () => {
     const labels = [...el.querySelectorAll('label.prop-field')].map(label => label.textContent ?? '')
     for (const label of labels) expect(label.trim()).not.toBe('')
     expect(labels.some(label => label.includes('thickness'))).toBe(true)
+    expect(labels.some(label => label.includes('N edge'))).toBe(true)
+    el.remove()
+  })
+
+  it('edge rows show overrides, placeholders announce the inherited thickness', () => {
+    const el = makePanel()
+    el.setEntity(EDGE_RECT)
+    // Overridden sides carry their value — an explicit 0 is the open side.
+    expect(field(el, 'edges.n').value).toBe('0')
+    expect(field(el, 'edges.s').value).toBe('110')
+    // Every edge row's placeholder shows the inherited default (270).
+    for (const key of ['edges.n', 'edges.e', 'edges.s', 'edges.w']) {
+      expect(field(el, key).placeholder).toBe('270')
+    }
+    el.remove()
+  })
+
+  it('edge rows commit sparse overrides: number overrides, 0 opens, empty inherits', () => {
+    const el = makePanel()
+    el.setEntity(RECT)
+    const events: PropertiesPanelChange[] = []
+    el.addEventListener('properties-panel:change', event =>
+      events.push((event as CustomEvent<PropertiesPanelChange>).detail)
+    )
+
+    const n = field(el, 'edges.n')
+    n.value = '110'
+    commitWithEnter(el, n)
+    expect(events).toEqual([{ id: 'e2', patch: { edges: { n: 110 } } }])
+
+    const s = field(el, 'edges.s')
+    s.value = '0'
+    commitWithEnter(el, s)
+    expect(events[1]).toEqual({ id: 'e2', patch: { edges: { s: 0 } } })
+
+    // Clearing an override emits the removal (the side inherits again).
+    const cleared = field(el, 'edges.s')
+    expect(cleared.dataset.value).toBe('0')
+    cleared.value = ''
+    commitWithEnter(el, cleared)
+    expect(events[2]).toEqual({ id: 'e2', patch: { edges: { s: undefined } } })
+    el.remove()
+  })
+
+  it('clearing an inheriting edge row emits nothing', () => {
+    const el = makePanel()
+    el.setEntity(RECT)
+    el.addEventListener('properties-panel:change', () => expect.unreachable())
+    const n = field(el, 'edges.n')
+    n.value = ''
+    commitWithEnter(el, n)
+    el.remove()
+  })
+
+  it('typing the inherited thickness on an inheriting edge row emits nothing', () => {
+    const el = makePanel()
+    el.setEntity(RECT)
+    const events: PropertiesPanelChange[] = []
+    el.addEventListener('properties-panel:change', event =>
+      events.push((event as CustomEvent<PropertiesPanelChange>).detail)
+    )
+    const e = field(el, 'edges.e')
+    e.value = '270'
+    commitWithEnter(el, e)
+    expect(events).toEqual([])
+    el.remove()
+  })
+
+  it('rejects a negative edge thickness with a field-level message', () => {
+    const el = makePanel()
+    const events: PropertiesPanelChange[] = []
+    el.addEventListener('properties-panel:change', event =>
+      events.push((event as CustomEvent<PropertiesPanelChange>).detail)
+    )
+    el.setEntity(RECT)
+    const w = field(el, 'edges.w')
+    w.value = '-5'
+    commitWithEnter(el, w)
+    expect(events).toEqual([])
+    expect(w.closest('label')!.querySelector<HTMLElement>('.prop-error')!.hidden).toBe(false)
     el.remove()
   })
 
@@ -213,8 +294,8 @@ describe('properties-panel', () => {
   it('linked entities edit the ref dx/dy instead of stored coordinates', () => {
     const el = makePanel()
     el.setEntity(LINKED_RECT)
-    // Position rows become the ref's dx/dy; the size rows stay editable.
-    expect(keys(el)).toEqual(['dx', 'dy', 'w', 'h', 'thickness'])
+    // Position rows become the ref's dx/dy; the size and edge rows stay.
+    expect(keys(el)).toEqual(['dx', 'dy', 'w', 'h', 'thickness', 'edges.n', 'edges.e', 'edges.s', 'edges.w'])
     const labels = [...el.querySelectorAll('label.prop-field')].map(label => label.textContent ?? '')
     expect(labels.some(label => label.includes('from anchor'))).toBe(true)
     expect(el.querySelector('.prop-input[data-key="x"]')).toBeNull()

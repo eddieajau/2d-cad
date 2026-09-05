@@ -16,7 +16,7 @@ import {
   type DimEntity,
   type Entity,
 } from './document.js'
-import { circleBand, dimLine, rectBand, textBounds } from './geometry.js'
+import { circleBand, dimLine, rectBand, rectEdges, rectEnvelope, uniformRectThickness, textBounds } from './geometry.js'
 import { visibleWorldRect, worldToScreen, type Viewport, type WorldPoint, type WorldRect } from './viewport.js'
 
 /**
@@ -252,28 +252,55 @@ export function drawCircle(ctx: CanvasRenderingContext2D, e: CircleGeometry, v: 
  * both faces stroked. Thickness 0 renders exactly as the hairline
  * strokeRect; a thickness that closes the envelope leaves a 1 mm clamped
  * void (see `rectBand`), falling back to a solid fill when that void is
- * sub-pixel.
+ * sub-pixel. Per-edge overrides split the band: uniform edges keep the
+ * fast path, mixed edges render per-side band quads (corner-to-corner, so
+ * open sides square off and adjacent bands overlap at corners — same fill,
+ * seams invisible) with inner-face strokes; open sides draw nothing.
  */
 export function drawRect(ctx: CanvasRenderingContext2D, e: RectGeometry, v: Viewport): void {
-  const t = Math.max(0, e.thickness ?? 0)
-  if (t === 0) {
-    const origin = worldToScreen(v, e.x, e.y + e.h)
-    ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
+  const edges = rectEdges(e)
+  const uniform = uniformRectThickness(edges)
+  if (uniform !== null) {
+    const t = uniform
+    if (t === 0) {
+      const origin = worldToScreen(v, e.x, e.y + e.h)
+      ctx.strokeRect(origin.sx, origin.sy, e.w * v.scale, e.h * v.scale)
+      return
+    }
+    const { outer, inner } = rectBand({ ...e, thickness: t })
+    const o = rectScreen(v, outer)
+    const i = rectScreen(v, inner)
+    ctx.beginPath()
+    ctx.rect(o.x, o.y, o.w, o.h)
+    if (i.w > 0 && i.h > 0) {
+      ctx.rect(i.x, i.y, i.w, i.h)
+      ctx.fill('evenodd')
+      ctx.strokeRect(i.x, i.y, i.w, i.h)
+    } else {
+      ctx.fill()
+    }
+    ctx.strokeRect(o.x, o.y, o.w, o.h)
     return
   }
-  const { outer, inner } = rectBand(e)
-  const o = rectScreen(v, outer)
-  const i = rectScreen(v, inner)
-  ctx.beginPath()
-  ctx.rect(o.x, o.y, o.w, o.h)
-  if (i.w > 0 && i.h > 0) {
-    ctx.rect(i.x, i.y, i.w, i.h)
-    ctx.fill('evenodd')
-    ctx.strokeRect(i.x, i.y, i.w, i.h)
-  } else {
-    ctx.fill()
-  }
+  // Mixed edges: the outer face always runs corner-to-corner; each present
+  // side fills its own band quad (separate paths — the quads overlap at
+  // corners, and even-odd accumulation would punch holes there) and strokes
+  // its inner face. Open sides contribute nothing.
+  const o = rectScreen(v, rectEnvelope(e))
   ctx.strokeRect(o.x, o.y, o.w, o.h)
+  for (const { effective, inner, band } of edges) {
+    if (effective <= 0) continue
+    const b = rectScreen(v, band)
+    ctx.beginPath()
+    ctx.rect(b.x, b.y, b.w, b.h)
+    ctx.fill()
+    const a = worldToScreen(v, inner.a.x, inner.a.y)
+    const c = worldToScreen(v, inner.b.x, inner.b.y)
+    ctx.beginPath()
+    ctx.moveTo(a.sx, a.sy)
+    ctx.lineTo(c.sx, c.sy)
+    ctx.stroke()
+  }
 }
 
 /** Screen-space top-left corner and size of a world rect (y-up world). */
