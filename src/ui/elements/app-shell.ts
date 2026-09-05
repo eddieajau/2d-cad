@@ -12,11 +12,13 @@ import {
   isEditable,
   layerById,
   removeLayer,
+  resolveEntity,
   setActiveLayer,
   updateEntity,
   updateLayer,
   DEFAULT_COLOUR,
   type DrawingDocument,
+  type Entity,
   type EntityId,
 } from '../../document.js'
 import { canRedo, canUndo, commit, createHistory, current, redo, undo, type History } from '../../history.js'
@@ -24,10 +26,11 @@ import { downloadDocument, loadLocal, openDocument, saveLocal } from '../../pers
 import type { SnapMode } from '../../snap.js'
 import type { ToolId } from '../../tools/types.js'
 import type { WorldPoint } from '../../viewport.js'
-import './entity-colour.js'
 import type { EntityColourChange } from './entity-colour.js'
 import './layer-panel.js'
 import type { LayerPanelChange } from './layer-panel.js'
+import './properties-panel.js'
+import type { PropertiesPanelChange } from './properties-panel.js'
 import './status-bar.js'
 import './tool-palette.js'
 
@@ -45,13 +48,14 @@ const AUTOSAVE_DELAY_MS = 1000
  * shell also owns the snapshot history: every commit/delete event the canvas
  * emits is appended, and ctrl/cmd+z (shift+z, ctrl/cmd+y) walk it. Pointer,
  * snap, and selection events are pushed down into the status bar readout.
- * Layer-panel ops map onto the model's layer functions and entity-colour
- * ops onto `updateEntity`, each through the same history commit, so layer
- * and colour changes are undoable like any edit. The shell is
+ * Layer-panel ops map onto the model's layer functions, entity-colour and
+ * properties-panel ops onto `updateEntity`, each through the same history
+ * commit, so layer, colour, and property changes are undoable like any
+ * edit. The shell is
  * also the persistence boundary: document changes autosave to
  * localStorage (debounced), and the New/Open/Save/Fit actions row
  * round-trips documents through files (Fit frames the drawing on screen).
- * Elements stay persistence-free.
+ * Element stays persistence-free.
  */
 export class AppShell extends HTMLElement {
   #abort: AbortController | null = null
@@ -79,6 +83,7 @@ export class AppShell extends HTMLElement {
     const bar = this.querySelector('status-bar')
     if (canvas && bar) bar.setSnap(canvas.getSnapMode())
     this.#syncLayerPanel()
+    this.#syncProperties()
     this.#syncEntityColour()
   }
 
@@ -107,8 +112,8 @@ export class AppShell extends HTMLElement {
           <tool-palette tools="select,line,rect,circle,text,dim,wall,offset" active="line"></tool-palette>
         </section>
         <section class="panel-section">
-          <h2>Colour</h2>
-          <entity-colour></entity-colour>
+          <h2>Properties</h2>
+          <properties-panel></properties-panel>
         </section>
         <section class="panel-section">
           <h2>Layers</h2>
@@ -134,6 +139,7 @@ export class AppShell extends HTMLElement {
     this.addEventListener('tool-palette:escape', this.#onOffsetEscape, opts)
     this.addEventListener('layer-panel:change', this.#onLayerChange, opts)
     this.addEventListener('entity-colour:change', this.#onEntityColour, opts)
+    this.addEventListener('properties-panel:change', this.#onPropertiesChange, opts)
     this.addEventListener('cad-canvas:commit', this.#onDocChange, opts)
     this.addEventListener('cad-canvas:delete', this.#onDocChange, opts)
     this.addEventListener('cad-canvas:blocked', this.#onBlocked, opts)
@@ -193,6 +199,7 @@ export class AppShell extends HTMLElement {
     canvas.setDocument(doc)
     this.#persistNow(doc)
     this.#syncLayerPanel()
+    this.#syncProperties()
   }
 
   #onFileChange = async (event: Event): Promise<void> => {
@@ -211,6 +218,7 @@ export class AppShell extends HTMLElement {
       }
       this.#persistNow(doc)
       this.#syncLayerPanel()
+      this.#syncProperties()
     } catch (error) {
       const reason = error instanceof DocumentParseError ? error.message : 'the file could not be read'
       window.alert(`Could not open "${file.name}": ${reason}`)
@@ -279,6 +287,18 @@ export class AppShell extends HTMLElement {
   #syncLayerPanel(): void {
     const doc = current(this.#history)
     this.querySelector('layer-panel')?.setLayers(doc.layers, doc.activeLayerId)
+  }
+
+  /**
+   * Push the selected entity (resolved, so refs are applied) down into the
+   * properties panel. Runs before {@link #syncEntityColour}, which feeds
+   * the `<entity-colour>` nested inside the freshly rendered panel.
+   */
+  #syncProperties(): void {
+    const doc = current(this.#history)
+    const id = this.querySelector('cad-canvas')?.getSelection() ?? null
+    const entity = id === null ? undefined : getEntity(doc, id)
+    this.querySelector('properties-panel')?.setEntity(entity !== undefined ? resolveEntity(doc, entity) : null)
   }
 
   /** Push the selected entity (plus its layer colour) down into the panel. */
@@ -360,6 +380,53 @@ export class AppShell extends HTMLElement {
     this.#syncEntityColour()
   }
 
+  /**
+   * Map a property edit onto `updateEntity` through the same history
+   * commit — property edits are undoable like any other. A dx/dy patch is
+   * a linked entity's positional edit: the reference owns position, so the
+   * ref delta moves and the stored coordinates stay untouched.
+   */
+  #onPropertiesChange = (event: Event): void => {
+    const { id, patch } = (event as CustomEvent<PropertiesPanelChange>).detail
+    const canvas = this.querySelector('cad-canvas')
+    const doc = canvas?.getDocument()
+    if (canvas === null || canvas === undefined || doc === undefined) return
+    const entity = getEntity(doc, id)
+    if (entity === undefined) return
+    // Property edits are entity edits: locked layers are refused like any
+    // other, and the panel is re-pushed so the fields show the true values.
+    if (!isEditable(doc, entity)) {
+      this.querySelector('status-bar')?.setHint('That layer is locked')
+      this.#syncProperties()
+      return
+    }
+    const next = this.#applyPropertyPatch(doc, entity, patch)
+    if (next === doc) return
+    this.#history = commit(this.#history, next)
+    canvas.setDocument(next)
+    this.#scheduleAutosave(next)
+    // The committed values already sit in the panel's fields; a re-push
+    // here would only steal focus from the next field being edited.
+    this.#syncEntityColour()
+  }
+
+  /** A property patch narrowed onto the model's `updateEntity`. */
+  #applyPropertyPatch(doc: DrawingDocument, entity: Entity, patch: Record<string, number | string>): DrawingDocument {
+    const ref = 'ref' in entity ? entity.ref : undefined
+    if (ref !== undefined && ('dx' in patch || 'dy' in patch)) {
+      return updateEntity(doc, entity.id, {
+        ref: {
+          ...ref,
+          dx: typeof patch.dx === 'number' ? patch.dx : ref.dx,
+          dy: typeof patch.dy === 'number' ? patch.dy : ref.dy,
+        },
+      })
+    }
+    // The panel validates keys against its per-type field spec; the record
+    // widens at the event boundary and narrows back onto the model here.
+    return updateEntity(doc, entity.id, patch as Parameters<typeof updateEntity>[2])
+  }
+
   #onBlocked = (event: Event): void => {
     const { reason } = (event as CustomEvent<{ reason: 'locked' }>).detail
     if (reason === 'locked') this.querySelector('status-bar')?.setHint('That layer is locked')
@@ -370,6 +437,7 @@ export class AppShell extends HTMLElement {
     this.#history = commit(this.#history, doc)
     this.#scheduleAutosave(doc)
     this.#syncLayerPanel()
+    this.#syncProperties()
     this.#syncEntityColour()
   }
 
@@ -397,6 +465,7 @@ export class AppShell extends HTMLElement {
     )
     // Any new interaction supersedes a refusal hint.
     this.querySelector('status-bar')?.setHint(null)
+    this.#syncProperties()
     this.#syncEntityColour()
   }
 
@@ -425,6 +494,7 @@ export class AppShell extends HTMLElement {
     this.#scheduleAutosave(current(this.#history))
     // A history walk can restore a different layer table.
     this.#syncLayerPanel()
+    this.#syncProperties()
     this.#syncEntityColour()
   }
 
@@ -435,6 +505,7 @@ export class AppShell extends HTMLElement {
     this.querySelector('cad-canvas')?.setDocument(current(this.#history))
     this.#scheduleAutosave(current(this.#history))
     this.#syncLayerPanel()
+    this.#syncProperties()
     this.#syncEntityColour()
   }
 }

@@ -42,6 +42,14 @@ function pointer(canvas: CadCanvas, type: string, clientX: number, clientY: numb
   canvas.querySelector('canvas')!.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true }))
 }
 
+/** A shell whose canvas can reach the (mocked) renderer. */
+function makeDrawableShell(): { shell: HTMLElement; canvas: CadCanvas } {
+  const { shell, canvas } = makeShell()
+  const inner = canvas.querySelector('canvas')!
+  inner.getContext = (() => ({}) as unknown) as typeof inner.getContext
+  return { shell, canvas }
+}
+
 describe('app-shell', () => {
   it('renders the brand, the side-panel sections, and the canvas page', () => {
     const el = document.createElement('app-shell')
@@ -55,9 +63,14 @@ describe('app-shell', () => {
     const panel = el.querySelector<HTMLElement>('.side-panel')!
     expect(panel.getAttribute('role')).toBe('complementary')
     expect(panel.getAttribute('aria-label')).toBe('Panels')
-    expect([...panel.querySelectorAll('h2')].map(heading => heading.textContent)).toEqual(['Tools', 'Colour', 'Layers'])
+    expect([...panel.querySelectorAll('h2')].map(heading => heading.textContent)).toEqual([
+      'Tools',
+      'Properties',
+      'Layers',
+    ])
     expect(panel.querySelector('tool-palette')).not.toBeNull()
-    expect(panel.querySelector('entity-colour')).not.toBeNull()
+    // Colour folds into the properties panel's own section.
+    expect(panel.querySelector('properties-panel entity-colour')).not.toBeNull()
     expect(panel.querySelector('layer-panel')).not.toBeNull()
 
     // The canvas page sits outside the panel column.
@@ -129,14 +142,6 @@ describe('app-shell', () => {
   })
 
   describe('layer panel', () => {
-    /** A shell whose canvas can reach the (mocked) renderer. */
-    function makeDrawableShell(): { shell: HTMLElement; canvas: CadCanvas } {
-      const { shell, canvas } = makeShell()
-      const inner = canvas.querySelector('canvas')!
-      inner.getContext = (() => ({}) as unknown) as typeof inner.getContext
-      return { shell, canvas }
-    }
-
     function emitChange(panel: Element, detail: LayerPanelChange): void {
       panel.dispatchEvent(new CustomEvent('layer-panel:change', { detail, bubbles: true, composed: true }))
     }
@@ -196,6 +201,89 @@ describe('app-shell', () => {
       // A refused edit announces itself through the status bar.
       canvas.dispatchEvent(new CustomEvent('cad-canvas:blocked', { detail: { reason: 'locked' }, bubbles: true }))
       expect(shell.querySelector('.status-hint')?.textContent).toBe('That layer is locked')
+
+      shell.remove()
+    })
+  })
+
+  describe('properties panel', () => {
+    it('maps a wall thickness patch onto updateEntity through the history', () => {
+      const { shell, canvas } = makeDrawableShell()
+
+      // Commit a wall with the default 270 mm band.
+      canvas.setTool('wall')
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 4000, 3000)
+      const wall = canvas.getDocument().entities[0]
+      expect(wall?.type).toBe('wall')
+
+      shell.querySelector('properties-panel')!.dispatchEvent(
+        new CustomEvent('properties-panel:change', {
+          detail: { id: wall!.id, patch: { thickness: 110 } },
+          bubbles: true,
+          composed: true,
+        })
+      )
+      const edited = canvas.getDocument().entities[0]
+      expect(edited?.type === 'wall' && edited.thickness).toBe(110)
+
+      // Property edits are undoable like any other.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+      const restored = canvas.getDocument().entities[0]
+      expect(restored?.type === 'wall' && restored.thickness).toBe(270)
+
+      shell.remove()
+    })
+
+    it('a dx patch on a linked entity moves the ref, not the stored coords', () => {
+      const { shell, canvas } = makeDrawableShell()
+      // A linked rect: ref at its parent's nw anchor plus (10, -5).
+      canvas.setDocument({
+        ...canvas.getDocument(),
+        entities: [
+          {
+            id: 'e9',
+            type: 'rect',
+            layerId: 'layer-0',
+            x: 10,
+            y: -5,
+            w: 100,
+            h: 50,
+            ref: { id: 'e1', corner: 'nw', dx: 10, dy: -5 },
+          },
+        ],
+      })
+
+      shell.querySelector('properties-panel')!.dispatchEvent(
+        new CustomEvent('properties-panel:change', {
+          detail: { id: 'e9', patch: { dx: 30 } },
+          bubbles: true,
+          composed: true,
+        })
+      )
+      const rect = canvas.getDocument().entities[0]
+      expect(rect?.type === 'rect' && rect.ref?.dx).toBe(30)
+      expect(rect?.type === 'rect' && rect.x).toBe(10)
+
+      shell.remove()
+    })
+
+    it('pushes the resolved selected entity into the panel', () => {
+      const { shell, canvas } = makeDrawableShell()
+
+      pointer(canvas, 'pointerdown', 0, 0)
+      pointer(canvas, 'pointerup', 40, 0)
+      canvas.setTool('select')
+      pointer(canvas, 'pointerdown', 20, 0)
+      pointer(canvas, 'pointerup', 20, 0)
+
+      const panel = shell.querySelector('properties-panel')!
+      expect(panel.querySelector('.prop-empty')).toBeNull()
+      expect(panel.querySelector('.prop-input[data-key="x1"]')).not.toBeNull()
+
+      // Clicking empty space reverts to the empty state.
+      pointer(canvas, 'pointerdown', 500, 500)
+      expect(panel.querySelector('.prop-empty')?.textContent).toBe('Nothing selected')
 
       shell.remove()
     })
